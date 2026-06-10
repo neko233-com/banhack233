@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/neko233-com/banhack233/internal/audit"
@@ -16,6 +17,7 @@ import (
 	"github.com/neko233-com/banhack233/internal/daemon"
 	"github.com/neko233-com/banhack233/internal/hardening"
 	"github.com/neko233-com/banhack233/internal/malware"
+	"github.com/neko233-com/banhack233/internal/notify"
 	"github.com/neko233-com/banhack233/internal/version"
 )
 
@@ -37,6 +39,8 @@ func run(args []string) error {
 		return runDaemon(args[1:])
 	case "test":
 		return runOnce(args[1:])
+	case "notify-test":
+		return runNotifyTest(args[1:])
 	case "doctor", "audit":
 		return runDoctor(args[1:])
 	case "malware-scan":
@@ -160,6 +164,28 @@ func runOnce(args []string) error {
 	return daemon.RunOnce(ctx, cfg)
 }
 
+func runNotifyTest(args []string) error {
+	fs := flag.NewFlagSet("banhack233 notify-test", flag.ContinueOnError)
+	cfgPath := fs.String("config", config.DefaultPath(), "config file")
+	channels := fs.String("channel", "", "comma-separated channels: console,feishu,discord,slack,email,webhook or webhook:<name>")
+	message := fs.String("message", "", "custom test message")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var selected []string
+	if strings.TrimSpace(*channels) != "" {
+		selected = []string{*channels}
+	}
+	_, err = notify.Test(ctx, cfg.Notifications, notify.TestOptions{Channels: selected, Message: *message})
+	return err
+}
+
 func runDoctor(args []string) error {
 	fs := flag.NewFlagSet("banhack233 doctor", flag.ContinueOnError)
 	cfgPath := fs.String("config", config.DefaultPath(), "config file")
@@ -242,7 +268,10 @@ func printHelp() {
 Usage:
   banhack233 init-config [-config path] [-force] create safe default config
   banhack233 run [-config path]              run daemon
-  banhack233 test [-config path]             scan once and send configured test notification
+  banhack233 test [-config path]             scan logs once (ban/audit notifications on events)
+  banhack233 notify-test [-config path]      send test notification to enabled channels
+  banhack233 notify-test -channel feishu,email
+  banhack233 notify-test -message "custom text"
   banhack233 doctor [-config path]           audit local security posture
   banhack233 malware-scan [-kill] [-name prefix] scan linux miners and write report
   banhack233 status [-config path]           show version, config, autostart, audit summary

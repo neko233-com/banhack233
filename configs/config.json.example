@@ -43,7 +43,8 @@
     "console": true,
     "feishu": {
       "enabled": false,
-      "url": "https://open.feishu.cn/open-apis/bot/v2/hook/xxx"
+      "url": "https://open.feishu.cn/open-apis/bot/v2/hook/xxx",
+      "secret": "your-feishu-sign-secret"
     },
     "discord": {
       "enabled": false,

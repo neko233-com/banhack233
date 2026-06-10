@@ -69,6 +69,7 @@ type SSHHardening struct {
 type WebhookConfig struct {
 	Enabled bool   `json:"enabled"`
 	URL     string `json:"url"`
+	Secret  string `json:"secret,omitempty"`
 }
 
 type WebhookTarget struct {
@@ -76,6 +77,7 @@ type WebhookTarget struct {
 	Enabled bool              `json:"enabled"`
 	URL     string            `json:"url"`
 	Format  string            `json:"format"`
+	Secret  string            `json:"secret,omitempty"`
 	Headers map[string]string `json:"headers"`
 }
 

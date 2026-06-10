@@ -381,6 +381,18 @@ sudo banhack233 unban 203.0.113.10
 banhack233 test
 ```
 
+仅在触发封禁或审计告警时发送通知。
+
+### 测试通知发送
+
+```sh
+banhack233 notify-test
+banhack233 notify-test -channel feishu,email
+banhack233 notify-test -message "自定义测试内容"
+```
+
+向配置中**已启用**的渠道发送测试消息：控制台、飞书、Discord、Slack、通用 webhook、邮箱。
+
 ## 配置文件
 
 示例：`configs/config.json.example`
@@ -463,19 +475,30 @@ banhack233 test
     "console": true,
     "feishu": {
       "enabled": true,
-      "url": "https://open.feishu.cn/open-apis/bot/v2/hook/xxxx"
+      "url": "https://open.feishu.cn/open-apis/bot/v2/hook/xxxx",
+      "secret": "your-feishu-sign-secret"
     }
   }
 }
 ```
 
-测试：
+飞书机器人若开启「签名校验」，必须配置 `secret`；程序会自动在请求里附带 `timestamp` 和 `sign`（HmacSHA256 + Base64，算法见[飞书官方文档](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot)）。未开启签名校验时可省略 `secret`。
+
+测试通知（推荐，直接向已启用渠道发测试消息）：
+
+```sh
+banhack233 notify-test
+banhack233 notify-test -channel feishu,email
+banhack233 notify-test -message "自定义测试内容"
+```
+
+`notify-test` 会按配置依次测试：控制台、飞书、Discord、Slack、通用 webhook、邮箱；`-channel` 可只测指定渠道。
+
+扫描测试（仅在触发封禁或审计告警时才会发通知）：
 
 ```sh
 banhack233 test
 ```
-
-当触发规则或审计有发现时，会发送飞书消息。
 
 ## Discord 通知
 
@@ -541,7 +564,7 @@ Slack 使用 `{"text":"..."}` payload。
 | `json` | `{"text":"..."}` |
 | `discord` | `{"content":"..."}` |
 | `slack` | `{"text":"..."}` |
-| `feishu` / `lark` | `{"msg_type":"text","content":{"text":"..."}}` |
+| `feishu` / `lark` | `{"msg_type":"text","content":{"text":"..."}}`；开启签名校验时配置 `secret`，自动附带 `timestamp`/`sign` |
 
 ## 邮箱通知
 
@@ -719,11 +742,11 @@ banhack233 ban-list
 检查：
 
 ```sh
-banhack233 test
+banhack233 notify-test -channel feishu
 journalctl -u banhack233 -n 100 --no-pager
 ```
 
-确认 webhook 地址正确，飞书机器人未被禁用。
+确认 webhook 地址正确；若机器人开启签名校验，配置 `secret`；确认机器人未被禁用。
 
 ## 开发
 

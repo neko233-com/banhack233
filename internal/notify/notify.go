@@ -3,10 +3,14 @@ package notify
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,7 +32,7 @@ func Send(ctx context.Context, cfg config.NotificationSet, ev Event) error {
 		fmt.Println(text)
 	}
 	if cfg.Feishu.Enabled {
-		if err := sendWebhook(ctx, config.WebhookTarget{Name: "feishu", Enabled: true, URL: cfg.Feishu.URL, Format: "feishu"}, text); err != nil {
+		if err := sendWebhook(ctx, config.WebhookTarget{Name: "feishu", Enabled: true, URL: cfg.Feishu.URL, Format: "feishu", Secret: cfg.Feishu.Secret}, text); err != nil {
 			return err
 		}
 	}
@@ -59,7 +63,7 @@ func Send(ctx context.Context, cfg config.NotificationSet, ev Event) error {
 }
 
 func sendWebhook(ctx context.Context, target config.WebhookTarget, text string) error {
-	body, contentType, err := webhookBody(target.Format, text)
+	body, contentType, err := webhookBody(target.Format, text, target.Secret)
 	if err != nil {
 		return err
 	}
@@ -87,7 +91,14 @@ func sendWebhook(ctx context.Context, target config.WebhookTarget, text string) 
 	return nil
 }
 
-func webhookBody(format, text string) ([]byte, string, error) {
+func feishuSign(timestamp, secret string) string {
+	stringToSign := timestamp + "\n" + secret
+	mac := hmac.New(sha256.New, []byte(stringToSign))
+	mac.Write(nil)
+	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func webhookBody(format, text, secret string) ([]byte, string, error) {
 	switch strings.ToLower(strings.TrimSpace(format)) {
 	case "", "text":
 		return []byte(text), "text/plain; charset=utf-8", nil
@@ -101,10 +112,16 @@ func webhookBody(format, text string) ([]byte, string, error) {
 		body, err := json.Marshal(map[string]string{"text": text})
 		return body, "application/json", err
 	case "feishu", "lark":
-		body, err := json.Marshal(map[string]any{
+		payload := map[string]any{
 			"msg_type": "text",
 			"content":  map[string]string{"text": text},
-		})
+		}
+		if strings.TrimSpace(secret) != "" {
+			timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+			payload["timestamp"] = timestamp
+			payload["sign"] = feishuSign(timestamp, secret)
+		}
+		body, err := json.Marshal(payload)
 		return body, "application/json", err
 	default:
 		return nil, "", fmt.Errorf("unknown webhook format %q", format)

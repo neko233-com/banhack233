@@ -134,6 +134,8 @@ sudo systemctl restart banhack233
 banhack233 status
 banhack233 doctor
 banhack233 test
+banhack233 notify-test
+banhack233 notify-test -channel feishu,email
 banhack233 ban-list
 sudo banhack233 unban 203.0.113.10
 banhack233 malware-scan
@@ -354,11 +356,24 @@ Supported channels:
   "notifications": {
     "feishu": {
       "enabled": true,
-      "url": "https://open.feishu.cn/open-apis/bot/v2/hook/xxxx"
+      "url": "https://open.feishu.cn/open-apis/bot/v2/hook/xxxx",
+      "secret": "your-feishu-sign-secret"
     }
   }
 }
 ```
+
+If the bot has signature verification enabled, set `secret`; the client adds `timestamp` and `sign` automatically (HmacSHA256 + Base64 per [Feishu docs](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot)). Omit `secret` when verification is off.
+
+Test notifications (sends to all enabled channels):
+
+```sh
+banhack233 notify-test
+banhack233 notify-test -channel feishu,email
+banhack233 notify-test -message "custom test text"
+```
+
+`banhack233 test` only scans logs; notifications are sent only when a ban or audit alert fires.
 
 ### Discord
 
@@ -416,7 +431,7 @@ Formats:
 | `json` | `{"text":"..."}` |
 | `discord` | `{"content":"..."}` |
 | `slack` | `{"text":"..."}` |
-| `feishu` / `lark` | `{"msg_type":"text","content":{"text":"..."}}` |
+| `feishu` / `lark` | `{"msg_type":"text","content":{"text":"..."}}`; set `secret` when signature verification is on |
 
 ### Email
 

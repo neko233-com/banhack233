@@ -1,1 +1,6 @@
 dist/
+
+# Local cross-compile artifacts (release builds use dist/)
+/banhack233
+/banhack233.exe
+/banhack233-*
