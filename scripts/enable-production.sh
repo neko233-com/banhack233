@@ -15,9 +15,30 @@ if [ ! -f "$GEOIP_DB" ]; then
     curl -fsSL "https://github.com/lionsoul2014/ip2region/raw/master/data/ip2region_v4.xdb" -o "$GEOIP_DB"
 fi
 
-if grep -q '"dry_run": true' "$CFG"; then
-    sed -i 's/"dry_run": true/"dry_run": false/' "$CFG"
-fi
+python3 - "$CFG" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    cfg = json.load(f)
+
+cfg["dry_run"] = False
+cfg["geoip"] = {
+    "enabled": True,
+    "db_path": "/var/lib/banhack233/ip2region_v4.xdb",
+}
+notifications = cfg.setdefault("notifications", {})
+notifications["batch"] = {
+    "enabled": True,
+    "interval": "60s",
+    "max_items": 20,
+}
+
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(cfg, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+PY
 
 banhack233 secure-ssh -config "$CFG" -write -force
 systemctl restart banhack233 2>/dev/null || true
