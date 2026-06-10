@@ -3,6 +3,8 @@
   "audit_interval": "1h",
   "state_path": "/var/lib/banhack233/state.json",
   "dry_run": true,
+  "start_at_end": true,
+  "ignore_ips": ["127.0.0.1", "::1"],
   "rules": [
     {
       "name": "ssh-auth-failure",

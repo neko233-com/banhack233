@@ -65,6 +65,17 @@ func scanRule(ctx context.Context, cfg config.Config, rule config.Rule, st *stat
 			}
 			continue
 		}
+		if _, seen := st.Offsets[path]; !seen && cfg.StartAtEnd {
+			offset, err := fileSize(path)
+			if os.IsNotExist(err) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			st.Offsets[path] = offset
+			continue
+		}
 		lines, offset, err := readNewLines(path, st.Offsets[path])
 		if os.IsNotExist(err) {
 			continue
@@ -90,6 +101,9 @@ func scanLines(ctx context.Context, cfg config.Config, rule config.Rule, st *sta
 		if ip == "" {
 			continue
 		}
+		if ignoredIP(cfg.IgnoreIPs, ip) {
+			continue
+		}
 		key := rule.Name + "|" + ip
 		st.Hits[key] = appendRecent(st.Hits[key], now, rule.FindTime.Duration)
 		if len(st.Hits[key]) < rule.MaxAttempts {
@@ -108,6 +122,15 @@ func scanLines(ctx context.Context, cfg config.Config, rule config.Rule, st *sta
 		}
 	}
 	return nil
+}
+
+func ignoredIP(ignore []string, ip string) bool {
+	for _, item := range ignore {
+		if strings.TrimSpace(item) == ip {
+			return true
+		}
+	}
+	return false
 }
 
 func compilePatterns(patterns []string) ([]*regexp.Regexp, error) {
@@ -181,4 +204,12 @@ func readNewLines(path string, offset int64) ([]string, int64, error) {
 	}
 	pos, err := file.Seek(0, 1)
 	return lines, pos, err
+}
+
+func fileSize(path string) (int64, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0, err
+	}
+	return info.Size(), nil
 }

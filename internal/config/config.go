@@ -15,6 +15,8 @@ type Config struct {
 	AuditInterval Duration        `json:"audit_interval"`
 	StatePath     string          `json:"state_path"`
 	DryRun        bool            `json:"dry_run"`
+	StartAtEnd    bool            `json:"start_at_end"`
+	IgnoreIPs     []string        `json:"ignore_ips"`
 	Rules         []Rule          `json:"rules"`
 	Hardening     Hardening       `json:"hardening"`
 	Notifications NotificationSet `json:"notifications"`
@@ -105,6 +107,8 @@ func Default() Config {
 		AuditInterval: Duration{time.Hour},
 		StatePath:     defaultStatePath(),
 		DryRun:        true,
+		StartAtEnd:    true,
+		IgnoreIPs:     []string{"127.0.0.1", "::1"},
 		Rules: []Rule{
 			{
 				Name:        "ssh-auth-failure",

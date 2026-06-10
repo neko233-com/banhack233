@@ -11,6 +11,7 @@ import (
 
 	"github.com/neko233-com/banhack233/internal/audit"
 	"github.com/neko233-com/banhack233/internal/autostart"
+	"github.com/neko233-com/banhack233/internal/ban"
 	"github.com/neko233-com/banhack233/internal/config"
 	"github.com/neko233-com/banhack233/internal/daemon"
 	"github.com/neko233-com/banhack233/internal/hardening"
@@ -39,6 +40,18 @@ func run(args []string) error {
 		return runDoctor(args[1:])
 	case "secure-ssh":
 		return runSecureSSH(args[1:])
+	case "ban-list":
+		out, err := ban.List()
+		if err != nil {
+			return err
+		}
+		fmt.Print(out)
+		return nil
+	case "unban":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: banhack233 unban <ip>")
+		}
+		return ban.Unban(args[1])
 	case "install-autostart":
 		return runInstallAutostart(args[1:])
 	case "uninstall-autostart":
@@ -167,6 +180,8 @@ Usage:
   banhack233 doctor [-config path]           audit local security posture
   banhack233 secure-ssh [-config path]       preview SSH hardening block
   banhack233 secure-ssh -write               apply SSH hardening after backup + sshd -t
+  banhack233 ban-list                        list active ban backend entries
+  banhack233 unban <ip>                      remove a blocked IP
   banhack233 install-autostart [-config path] install systemd or Windows startup task
   banhack233 uninstall-autostart             remove autostart
   banhack233 autostart-status                show autostart status

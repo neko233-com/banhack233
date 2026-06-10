@@ -11,6 +11,8 @@
 - Linux 使用 `nft`/`iptables`，Windows 使用防火墙。
 - 内置通知和安全巡检。
 - 默认每 1 小时 `doctor` 审计一次。
+- 默认 `start_at_end=true`，新安装只监控新日志，不因历史爆破记录狂刷通知。
+- 支持 `ignore_ips` 白名单、防误封。
 - 支持保留 SSH 密码登录，但禁 root 密码、低重试、短登录宽限、禁空密码。
 
 功能：
@@ -31,6 +33,7 @@ Linux:
 curl -fsSL https://raw.githubusercontent.com/neko233-com/banhack233/main/scripts/install.sh | sh
 sudo nano /etc/banhack233/config.json
 sudo banhack233 doctor
+sudo banhack233 ban-list
 sudo banhack233 secure-ssh
 # 确认 allowed_users 等配置后再执行:
 sudo banhack233 secure-ssh -write
@@ -82,5 +85,7 @@ go run ./cmd/banhack233 test -config configs/config.json.example
 - `find_time`: 检测窗口。
 - `ban_time`: 封禁时长记录，用于避免重复通知。
 - `action`: `auto` 或自定义命令路径。
+- `start_at_end`: 首次运行从日志末尾开始，避免处理多年历史日志。
+- `ignore_ips`: 永不封禁的 IP。
 
 邮箱说明：QQ/163 常用为授权码，不是登录密码。自定义服务商填 `smtp_host`、`smtp_port`。
