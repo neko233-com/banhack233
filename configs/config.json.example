@@ -1,0 +1,49 @@
+{
+  "interval": "30s",
+  "audit_interval": "1h",
+  "state_path": "/var/lib/banhack233/state.json",
+  "dry_run": true,
+  "rules": [
+    {
+      "name": "ssh-auth-failure",
+      "log_paths": ["/var/log/auth.log", "/var/log/secure"],
+      "patterns": [
+        "Failed password.*from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)",
+        "Invalid user .* from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)"
+      ],
+      "max_attempts": 5,
+      "find_time": "10m",
+      "ban_time": "1h",
+      "action": "auto"
+    }
+  ],
+  "hardening": {
+    "ssh": {
+      "enabled": true,
+      "password_authentication": true,
+      "permit_root_login": "no",
+      "allowed_users": [],
+      "max_auth_tries": 3,
+      "login_grace_time": "20s",
+      "client_alive_interval": 300,
+      "client_alive_count_max": 2,
+      "disable_empty_passwords": true,
+      "disable_challenge_response": true
+    }
+  },
+  "notifications": {
+    "console": true,
+    "feishu": {
+      "enabled": false,
+      "url": "https://open.feishu.cn/open-apis/bot/v2/hook/xxx"
+    },
+    "email": {
+      "enabled": false,
+      "from": "alert@qq.com",
+      "to": "admin@example.com",
+      "password": "smtp-authorization-code",
+      "smtp_host": "",
+      "smtp_port": 0
+    }
+  }
+}

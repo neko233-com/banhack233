@@ -1,0 +1,184 @@
+package daemon
+
+import (
+	"bufio"
+	"context"
+	"fmt"
+	"os"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/neko233-com/banhack233/internal/audit"
+	"github.com/neko233-com/banhack233/internal/ban"
+	"github.com/neko233-com/banhack233/internal/config"
+	"github.com/neko233-com/banhack233/internal/notify"
+)
+
+func Run(ctx context.Context, cfg config.Config) error {
+	ticker := time.NewTicker(cfg.Interval.Duration)
+	defer ticker.Stop()
+	for {
+		if err := RunOnce(ctx, cfg); err != nil {
+			fmt.Fprintln(os.Stderr, "scan error:", err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func RunOnce(ctx context.Context, cfg config.Config) error {
+	st, err := loadState(cfg.StatePath)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	for _, rule := range cfg.Rules {
+		if err := scanRule(ctx, cfg, rule, &st, now); err != nil {
+			return err
+		}
+	}
+	if st.LastAudit.IsZero() || now.Sub(st.LastAudit) >= cfg.AuditInterval.Duration {
+		findings := audit.Run(cfg)
+		if len(findings) > 0 {
+			if err := notify.Send(ctx, cfg.Notifications, notify.Event{Rule: "audit", IP: "-", Action: audit.Format(findings), Count: len(findings), When: now, DryRun: cfg.DryRun}); err != nil {
+				return err
+			}
+		}
+		st.LastAudit = now
+	}
+	return saveState(cfg.StatePath, st)
+}
+
+func scanRule(ctx context.Context, cfg config.Config, rule config.Rule, st *state, now time.Time) error {
+	for _, path := range rule.LogPaths {
+		if strings.HasPrefix(path, "eventlog:") {
+			lines, err := readWindowsEvents(strings.TrimPrefix(path, "eventlog:"))
+			if err != nil {
+				return err
+			}
+			if err := scanLines(ctx, cfg, rule, st, now, lines); err != nil {
+				return err
+			}
+			continue
+		}
+		lines, offset, err := readNewLines(path, st.Offsets[path])
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		st.Offsets[path] = offset
+		if err := scanLines(ctx, cfg, rule, st, now, lines); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func scanLines(ctx context.Context, cfg config.Config, rule config.Rule, st *state, now time.Time, lines []string) error {
+	matchers, err := compilePatterns(rule.Patterns)
+	if err != nil {
+		return err
+	}
+	for _, line := range lines {
+		ip := matchIP(matchers, line)
+		if ip == "" {
+			continue
+		}
+		key := rule.Name + "|" + ip
+		st.Hits[key] = appendRecent(st.Hits[key], now, rule.FindTime.Duration)
+		if len(st.Hits[key]) < rule.MaxAttempts {
+			continue
+		}
+		if until, banned := st.Bans[key]; banned && until.After(now) {
+			continue
+		}
+		action, err := ban.Apply(ip, rule.Action, cfg.DryRun)
+		if err != nil {
+			return err
+		}
+		st.Bans[key] = now.Add(rule.BanTime.Duration)
+		if err := notify.Send(ctx, cfg.Notifications, notify.Event{Rule: rule.Name, IP: ip, Action: action, Count: len(st.Hits[key]), When: now, DryRun: cfg.DryRun}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func compilePatterns(patterns []string) ([]*regexp.Regexp, error) {
+	var out []*regexp.Regexp
+	for _, pattern := range patterns {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, re)
+	}
+	return out, nil
+}
+
+func matchIP(matchers []*regexp.Regexp, line string) string {
+	for _, re := range matchers {
+		m := re.FindStringSubmatch(line)
+		if len(m) == 0 {
+			continue
+		}
+		for i, name := range re.SubexpNames() {
+			if name == "ip" && i < len(m) {
+				return m[i]
+			}
+		}
+		if len(m) > 1 {
+			return m[1]
+		}
+	}
+	return ""
+}
+
+func appendRecent(items []time.Time, now time.Time, window time.Duration) []time.Time {
+	cutoff := now.Add(-window)
+	var out []time.Time
+	for _, item := range items {
+		if item.After(cutoff) {
+			out = append(out, item)
+		}
+	}
+	out = append(out, now)
+	return out
+}
+
+func readNewLines(path string, offset int64) ([]string, int64, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, offset, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, offset, err
+	}
+	if offset > info.Size() {
+		offset = 0
+	}
+	if _, err := file.Seek(offset, 0); err != nil {
+		return nil, offset, err
+	}
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, offset, err
+	}
+	pos, err := file.Seek(0, 1)
+	return lines, pos, err
+}
