@@ -65,10 +65,12 @@ func runOnce(ctx context.Context, cfg config.Config, dispatcher *notify.Dispatch
 		}
 	}
 	if st.LastAudit.IsZero() || now.Sub(st.LastAudit) >= cfg.AuditInterval.Duration {
-		findings := audit.Run(cfg)
-		if len(findings) > 0 {
-			if err := dispatcher.NotifyAudit(ctx, notify.Event{Rule: "audit", IP: "-", Action: audit.Format(findings), Count: len(findings), When: now, DryRun: cfg.DryRun}); err != nil {
-				return err
+		if cfg.Notifications.Audit {
+			findings := audit.Run(cfg)
+			if len(findings) > 0 {
+				if err := dispatcher.NotifyAudit(ctx, notify.Event{Rule: "audit", IP: "-", Action: audit.Format(findings), Count: len(findings), When: now, DryRun: cfg.DryRun}); err != nil {
+					return err
+				}
 			}
 		}
 		st.LastAudit = now

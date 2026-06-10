@@ -41,6 +41,7 @@ type NotificationSet struct {
 	Webhooks []WebhookTarget   `json:"webhooks"`
 	Email    EmailConfig       `json:"email"`
 	Console  bool              `json:"console"`
+	Audit    bool              `json:"audit"`
 	Batch    NotifyBatchConfig `json:"batch"`
 }
 

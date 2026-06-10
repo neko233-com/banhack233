@@ -29,6 +29,7 @@ cfg["geoip"] = {
     "db_path": "/var/lib/banhack233/ip2region_v4.xdb",
 }
 notifications = cfg.setdefault("notifications", {})
+notifications["audit"] = False
 notifications["batch"] = {
     "enabled": True,
     "interval": "60s",
