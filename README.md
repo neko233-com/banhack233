@@ -21,6 +21,7 @@ banhack233 status
 banhack233 doctor
 banhack233 ban-list
 banhack233 secure-ssh
+banhack233 keepalive -write
 banhack233 install-autostart
 ```
 

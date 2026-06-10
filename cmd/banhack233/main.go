@@ -42,6 +42,8 @@ func run(args []string) error {
 		return runStatus(args[1:])
 	case "secure-ssh":
 		return runSecureSSH(args[1:])
+	case "keepalive":
+		return runKeepalive(args[1:])
 	case "ban-list":
 		out, err := ban.List()
 		if err != nil {
@@ -181,6 +183,21 @@ func runSecureSSH(args []string) error {
 	return nil
 }
 
+func runKeepalive(args []string) error {
+	fs := flag.NewFlagSet("banhack233 keepalive", flag.ContinueOnError)
+	write := fs.Bool("write", false, "write SSH and TCP keepalive config")
+	hours := fs.Int("ssh-hours", 24, "SSH idle keepalive window in hours")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	out, err := hardening.ApplyKeepalive(*write, *hours)
+	if err != nil {
+		return err
+	}
+	fmt.Println(out)
+	return nil
+}
+
 func runInstallAutostart(args []string) error {
 	fs := flag.NewFlagSet("banhack233 install-autostart", flag.ContinueOnError)
 	cfgPath := fs.String("config", config.DefaultPath(), "config file")
@@ -201,6 +218,7 @@ Usage:
   banhack233 status [-config path]           show version, config, autostart, audit summary
   banhack233 secure-ssh [-config path]       preview SSH hardening block
   banhack233 secure-ssh -write               apply SSH hardening; requires allowed_users unless -force
+  banhack233 keepalive [-write]              keep SSH/root/password and long TCP sessions alive
   banhack233 ban-list                        list active ban backend entries
   banhack233 unban <ip>                      remove a blocked IP
   banhack233 install-autostart [-config path] install systemd or Windows startup task
