@@ -28,6 +28,12 @@ cfg["geoip"] = {
     "enabled": True,
     "db_path": "/var/lib/banhack233/ip2region_v4.xdb",
 }
+cfg["logging"] = {
+    "enabled": True,
+    "path": "/var/lib/banhack233/banhack233.log",
+    "max_size_mb": 10,
+    "max_age_days": 30,
+}
 notifications = cfg.setdefault("notifications", {})
 notifications["audit"] = False
 notifications["batch"] = {

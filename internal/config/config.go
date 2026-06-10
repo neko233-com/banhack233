@@ -21,7 +21,15 @@ type Config struct {
 	Hardening     Hardening       `json:"hardening"`
 	Malware       MalwareConfig   `json:"malware"`
 	GeoIP         GeoIPConfig     `json:"geoip"`
+	Logging       LogConfig       `json:"logging"`
 	Notifications NotificationSet `json:"notifications"`
+}
+
+type LogConfig struct {
+	Enabled    bool   `json:"enabled"`
+	Path       string `json:"path"`
+	MaxSizeMB  int    `json:"max_size_mb"`
+	MaxAgeDays int    `json:"max_age_days"`
 }
 
 type Rule struct {
@@ -179,6 +187,12 @@ func Default() Config {
 			Enabled: true,
 			DBPath:  defaultGeoIPPath(),
 		},
+		Logging: LogConfig{
+			Enabled:    true,
+			Path:       defaultLogPath(),
+			MaxSizeMB:  10,
+			MaxAgeDays: 30,
+		},
 		Notifications: NotificationSet{
 			Console: true,
 			Batch: NotifyBatchConfig{
@@ -229,6 +243,17 @@ func (c *Config) Normalize() error {
 	}
 	if strings.TrimSpace(c.GeoIP.DBPath) == "" {
 		c.GeoIP.DBPath = defaultGeoIPPath()
+	}
+	if c.Logging.Enabled {
+		if strings.TrimSpace(c.Logging.Path) == "" {
+			c.Logging.Path = defaultLogPath()
+		}
+		if c.Logging.MaxSizeMB <= 0 {
+			c.Logging.MaxSizeMB = 10
+		}
+		if c.Logging.MaxAgeDays <= 0 {
+			c.Logging.MaxAgeDays = 30
+		}
 	}
 	if c.Notifications.Batch.Enabled {
 		if c.Notifications.Batch.Interval.Duration <= 0 {
@@ -285,6 +310,20 @@ func defaultStatePath() string {
 		return "/usr/local/var/banhack233/state.json"
 	}
 	return "/var/lib/banhack233/state.json"
+}
+
+func defaultLogPath() string {
+	if runtime.GOOS == "windows" {
+		base := os.Getenv("ProgramData")
+		if base == "" {
+			base = `C:\ProgramData`
+		}
+		return filepath.Join(base, "banhack233", "banhack233.log")
+	}
+	if runtime.GOOS == "darwin" {
+		return "/usr/local/var/banhack233/banhack233.log"
+	}
+	return "/var/lib/banhack233/banhack233.log"
 }
 
 func defaultGeoIPPath() string {
