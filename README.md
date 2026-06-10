@@ -30,12 +30,12 @@ banhack233 status
 - 达阈值后自动封禁攻击 IP。
 - 支持 root 密码登录场景。
 - 支持 SSH 长时间不断线，目标至少 24 小时。
-- 支持 TCP 游戏逻辑服长连接保活，避免系统/NAT/conntrack 过早清理连接。
+- 支持 TCP 业务长连接保活，避免系统/NAT/conntrack 过早清理连接。
 - 支持飞书 webhook 和邮箱通知。
 - 支持开机自启动。
 - 支持 Linux、macOS、Windows。
 
-它不是只做 fail2ban。它包含 fail2ban 风格能力，也包含系统连接保活、通知、状态检查、SSH 安全基线等主机场景。
+它不是只做 fail2ban，也不是逐项复制 fail2ban。它是几个常用主机安全能力的集合体：fail2ban 风格日志扫描与封禁、sshguard 风格 SSH 爆破防护、系统安全巡检、SSH/TCP 保活、通知告警、自启动部署。
 
 ## 支持平台
 
@@ -147,7 +147,7 @@ banhack233 doctor
 - 是否仍在 dry-run。
 - 通知渠道是否开启。
 
-不会把 Redis、MySQL、游戏服务等业务端口当默认问题。业务软件由业务自己决定是否公开。
+不会把 Redis、MySQL、自研 TCP 服务等业务端口当默认问题。业务软件由业务自己决定是否公开。
 
 ### 预览 SSH 配置
 
@@ -217,8 +217,9 @@ net.netfilter.nf_conntrack_tcp_timeout_established = 432000
 - 连续 10 次失败才认为断开。
 - conntrack established 超时 5 天。
 
-这能防止系统、NAT、conntrack 太快清理长连接。  
-如果游戏逻辑服代码自己设置了 5 分钟 idle timeout，需要同时修改游戏服务的应用层心跳或超时配置。
+这能防止系统、NAT、conntrack 太快清理业务长连接。
+
+如果业务服务代码自己设置了 5 分钟 idle timeout，需要同时修改应用层心跳或超时配置。
 
 ### 开机自启动
 
@@ -402,7 +403,7 @@ sudo systemctl restart banhack233
 banhack233 ban-list
 ```
 
-## 游戏 TCP 长连接演示
+## TCP 业务长连接演示
 
 应用系统层保活：
 
@@ -434,10 +435,10 @@ net.ipv4.tcp_keepalive_probes = 10
 net.netfilter.nf_conntrack_tcp_timeout_established = 432000
 ```
 
-如果游戏客户端仍 5 分钟掉线，检查：
+如果客户端仍 5 分钟掉线，检查：
 
-- 游戏服务是否有应用层 idle timeout。
-- 游戏协议是否有心跳包。
+- 业务服务是否有应用层 idle timeout。
+- 业务协议是否有心跳包。
 - 云厂商负载均衡是否有 idle timeout。
 - 代理、网关、防火墙是否有自己的空闲连接回收。
 
@@ -489,7 +490,7 @@ sysctl net.ipv4.tcp_keepalive_time net.netfilter.nf_conntrack_tcp_timeout_establ
 再确认是否有：
 
 - 云负载均衡 idle timeout。
-- 游戏网关 idle timeout。
+- 业务网关 idle timeout。
 - 应用层主动断开。
 
 ### 没有封禁
