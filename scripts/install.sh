@@ -8,6 +8,8 @@ BINARY="banhack233"
 detect_os() {
     case "$(uname -s)" in
         Linux*) echo "linux" ;;
+        Darwin*) echo "darwin" ;;
+        CYGWIN*|MINGW*|MSYS*) echo "windows" ;;
         *) echo "unsupported" ;;
     esac
 }
@@ -37,6 +39,7 @@ fi
 VERSION="${VERSION#v}"
 
 ASSET="${BINARY}-${OS}-${ARCH}"
+[ "$OS" = "windows" ] && ASSET="${ASSET}.exe"
 URL="https://github.com/${REPO}/releases/download/v${VERSION}/${ASSET}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -44,17 +47,38 @@ trap 'rm -rf "$TMP"' EXIT
 echo "download $URL"
 curl -fsSL "$URL" -o "$TMP/$BINARY"
 chmod +x "$TMP/$BINARY"
-if [ -w /usr/local/bin ]; then
-    mv "$TMP/$BINARY" /usr/local/bin/$BINARY
+if [ "$OS" = "windows" ]; then
+    INSTALL_DIR="${LOCALAPPDATA:-$HOME/AppData/Local}/banhack233"
+    CONFIG_DIR="$INSTALL_DIR"
+    mkdir -p "$INSTALL_DIR" "$CONFIG_DIR"
+    mv "$TMP/$BINARY" "$INSTALL_DIR/$BINARY.exe"
 else
-    sudo mv "$TMP/$BINARY" /usr/local/bin/$BINARY
+    INSTALL_DIR="/usr/local/bin"
+    CONFIG_DIR="/etc/banhack233"
+    if [ -w "$INSTALL_DIR" ]; then
+        mv "$TMP/$BINARY" "$INSTALL_DIR/$BINARY"
+    else
+        sudo mv "$TMP/$BINARY" "$INSTALL_DIR/$BINARY"
+    fi
+    if [ ! -d "$CONFIG_DIR" ]; then
+        sudo mkdir -p "$CONFIG_DIR"
+    fi
+    if [ "$OS" = "linux" ]; then
+        sudo mkdir -p /var/lib/banhack233
+    elif [ "$OS" = "darwin" ]; then
+        sudo mkdir -p /usr/local/var/banhack233
+    fi
 fi
 
-if [ ! -f /etc/banhack233/config.json ]; then
-    sudo mkdir -p /etc/banhack233 /var/lib/banhack233
-    sudo curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/configs/config.json.example" -o /etc/banhack233/config.json
+CONFIG_PATH="$CONFIG_DIR/config.json"
+if [ ! -f "$CONFIG_PATH" ]; then
+    if [ "$OS" = "windows" ]; then
+        curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/configs/config.json.example" -o "$CONFIG_PATH"
+    else
+        sudo curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/configs/config.json.example" -o "$CONFIG_PATH"
+    fi
 fi
 
-echo "installed: /usr/local/bin/$BINARY"
-echo "edit: /etc/banhack233/config.json"
-echo "enable: sudo banhack233 install-autostart"
+echo "installed: $INSTALL_DIR/$BINARY"
+echo "config: $CONFIG_PATH"
+echo "next: banhack233 status"

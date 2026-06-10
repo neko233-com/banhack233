@@ -6,7 +6,7 @@ if "%COMMIT%"=="" set COMMIT=unknown
 if "%DATE%"=="" set DATE=unknown
 if not exist dist mkdir dist
 set LDFLAGS=-s -w -X github.com/neko233-com/banhack233/internal/version.Version=%VERSION% -X github.com/neko233-com/banhack233/internal/version.Commit=%COMMIT% -X github.com/neko233-com/banhack233/internal/version.Date=%DATE%
-for %%O in (linux windows) do (
+for %%O in (linux darwin windows) do (
   for %%A in (amd64 arm64) do (
     set EXT=
     if "%%O"=="windows" set EXT=.exe

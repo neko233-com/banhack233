@@ -33,12 +33,22 @@ func applyAuto(ip string) (string, error) {
 			return "iptables", exec.Command("iptables", "-I", "INPUT", "-s", ip, "-j", "DROP").Run()
 		}
 		return "", fmt.Errorf("no nft or iptables found")
+	case "darwin":
+		if err := ensurePF(); err != nil {
+			return "pf", err
+		}
+		return "pf", runOK(exec.Command("pfctl", "-t", "banhack233", "-T", "add", ip))
 	case "windows":
 		name := "banhack233-" + ip
 		return "netsh", exec.Command("netsh", "advfirewall", "firewall", "add", "rule", "name="+name, "dir=in", "action=block", "remoteip="+ip).Run()
 	default:
 		return "", fmt.Errorf("unsupported OS %s", runtime.GOOS)
 	}
+}
+
+func ensurePF() error {
+	_ = runOK(exec.Command("pfctl", "-E"))
+	return runOK(exec.Command("pfctl", "-t", "banhack233", "-T", "show"))
 }
 
 func ensureNFT() error {

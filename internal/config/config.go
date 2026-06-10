@@ -98,6 +98,9 @@ func DefaultPath() string {
 		}
 		return filepath.Join(base, "banhack233", "config.json")
 	}
+	if runtime.GOOS == "darwin" {
+		return "/usr/local/etc/banhack233/config.json"
+	}
 	return "/etc/banhack233/config.json"
 }
 
@@ -194,6 +197,9 @@ func defaultStatePath() string {
 			base = `C:\ProgramData`
 		}
 		return filepath.Join(base, "banhack233", "state.json")
+	}
+	if runtime.GOOS == "darwin" {
+		return "/usr/local/var/banhack233/state.json"
 	}
 	return "/var/lib/banhack233/state.json"
 }
