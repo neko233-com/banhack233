@@ -7,7 +7,7 @@ import (
 	"runtime"
 )
 
-func ApplyKeepalive(write bool, sshHours int) (string, error) {
+func ApplyKeepalive(write bool, sshHours int, tcp bool) (string, error) {
 	if runtime.GOOS != "linux" {
 		return "", fmt.Errorf("keepalive supports linux only")
 	}
@@ -30,8 +30,12 @@ net.ipv4.tcp_keepalive_intvl = 30
 net.ipv4.tcp_keepalive_probes = 10
 net.netfilter.nf_conntrack_tcp_timeout_established = 432000
 `
+	preview := "/etc/ssh/sshd_config.d/99-banhack233-keepalive.conf\n" + sshBlock
+	if tcp {
+		preview += "\n/etc/sysctl.d/99-banhack233-keepalive.conf\n" + sysctlBlock
+	}
 	if !write {
-		return "/etc/ssh/sshd_config.d/99-banhack233-keepalive.conf\n" + sshBlock + "\n/etc/sysctl.d/99-banhack233-keepalive.conf\n" + sysctlBlock, nil
+		return preview, nil
 	}
 	if err := os.MkdirAll("/etc/ssh/sshd_config.d", 0o755); err != nil {
 		return "", err
@@ -39,16 +43,21 @@ net.netfilter.nf_conntrack_tcp_timeout_established = 432000
 	if err := os.WriteFile("/etc/ssh/sshd_config.d/99-banhack233-keepalive.conf", []byte(sshBlock), 0o644); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile("/etc/sysctl.d/99-banhack233-keepalive.conf", []byte(sysctlBlock), 0o644); err != nil {
-		return "", err
-	}
-	if err := exec.Command("sysctl", "--system").Run(); err != nil {
-		return "", err
+	if tcp {
+		if err := os.WriteFile("/etc/sysctl.d/99-banhack233-keepalive.conf", []byte(sysctlBlock), 0o644); err != nil {
+			return "", err
+		}
+		if err := exec.Command("sysctl", "--system").Run(); err != nil {
+			return "", err
+		}
 	}
 	if err := exec.Command("sshd", "-t").Run(); err != nil {
 		return "", err
 	}
 	_ = exec.Command("systemctl", "reload", "ssh").Run()
 	_ = exec.Command("systemctl", "reload", "sshd").Run()
-	return "keepalive applied: ssh=24h tcp_keepalive_time=60s tcp_keepalive_intvl=30s tcp_keepalive_probes=10 conntrack_established=5d", nil
+	if tcp {
+		return fmt.Sprintf("keepalive applied: ssh=%dh tcp_keepalive_time=60s tcp_keepalive_intvl=30s tcp_keepalive_probes=10 conntrack_established=5d", sshHours), nil
+	}
+	return fmt.Sprintf("keepalive applied: ssh=%dh tcp_sysctl=unchanged", sshHours), nil
 }

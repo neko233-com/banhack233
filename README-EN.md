@@ -28,17 +28,39 @@ Chinese docs: [README.md](README.md)
 
 `banhack233` is a simple host intrusion defense tool for Linux, macOS, and Windows.
 
-It is not a line-by-line clone of fail2ban. It is a bundle of common host security capabilities:
+It mainly solves these cases:
 
-- fail2ban-style log scan and IP ban.
-- sshguard-style SSH brute-force defense.
-- Host security audit.
-- SSH 24-hour keepalive.
-- TCP business long-connection keepalive, avoiding early system/NAT/conntrack cleanup.
-- Notifications through console, Feishu/Lark, Discord, Slack, generic webhook, and email.
-- Autostart through systemd, launchd, or Windows scheduled tasks.
+- You need SSH password login, sometimes root password login, but still want brute-force defense.
+- You need failed SSH login scanning and threshold-based IP bans.
+- You need autostart, alerts, host audit, and hourly scheduled audit.
+- You need SSH sessions to stay connected for at least 24 hours.
+- You need Linux, macOS, and Windows adaptation.
 
 Password SSH login and root password login are supported use cases. The default baseline keeps them enabled while reducing risk with low retry count, short login grace time, no empty passwords, alerts, whitelist, and automated bans.
+
+## Similar Software
+
+`banhack233` does not clone one project line by line. It combines common host security capabilities. Similar or related software/capabilities:
+
+1. `fail2ban`: log scan, threshold detection, attacker IP ban.
+2. `sshguard`: SSH brute-force protection.
+3. `denyhosts`: failed login source detection and blocking ideas.
+4. `crowdsec`: security event detection, remediation, and alert ecosystem.
+5. `ufw` / `nftables` / `iptables` / Windows Firewall: actual ban backends.
+
+## Features
+
+1. Host security audit: SSH policy, firewall backend, update/reboot hints, notification channels.
+2. SSH failed-login scanning: auth.log, secure, Windows OpenSSH event log.
+3. Automatic bans: Linux prefers `nft`, falls back to `iptables`; Windows uses firewall rules.
+4. Root password login support: root and password login are not forcibly disabled.
+5. SSH security baseline: no empty password, low retry count, short grace time, strong-password use case.
+6. SSH 24-hour keepalive: default changes SSH keepalive only, not system TCP sysctl.
+7. TCP keepalive advanced mode: global TCP keepalive/conntrack settings require explicit `-tcp`.
+8. Notifications: console, Feishu/Lark, Discord, Slack, generic webhook, email.
+9. SMTP auto-detection: QQ, 163, 126, Gmail, Outlook, Hotmail, Live, and others.
+10. Autostart: Linux systemd, macOS launchd, Windows schtasks.
+11. Safe defaults: `dry_run=true`, `start_at_end=true`, `ignore_ips` whitelist.
 
 ## Supported Platforms
 
@@ -125,17 +147,18 @@ LoginGraceTime 30s
 
 Keep an existing SSH session open before applying SSH changes.
 
-## SSH 24h Keepalive + TCP Long Connections
+## SSH 24h Keepalive
 
 ```sh
 sudo banhack233 keepalive -write
 ```
 
+By default this writes SSH config only. It does not change system TCP keepalive / conntrack settings, avoiding unexpected impact on TCP long connections, HTTP, database pools, proxies, or other business services.
+
 Writes:
 
 ```text
 /etc/ssh/sshd_config.d/99-banhack233-keepalive.conf
-/etc/sysctl.d/99-banhack233-keepalive.conf
 ```
 
 SSH settings:
@@ -149,6 +172,20 @@ ClientAliveCountMax 1440
 PermitEmptyPasswords no
 MaxAuthTries 3
 LoginGraceTime 30s
+```
+
+### TCP Keepalive Advanced Mode
+
+System TCP settings are not changed by default. If you explicitly need global TCP keepalive / conntrack tuning, add `-tcp`:
+
+```sh
+sudo banhack233 keepalive -write -tcp
+```
+
+This additionally writes:
+
+```text
+/etc/sysctl.d/99-banhack233-keepalive.conf
 ```
 
 TCP settings:
@@ -167,7 +204,9 @@ Meaning:
 - TCP keepalive starts after 60 seconds.
 - conntrack established timeout is 5 days.
 
-This helps prevent system, NAT, or conntrack layers from cleaning up idle business long connections too early. If an application has its own 5-minute idle timeout, fix the application heartbeat or timeout too.
+This can prevent system, NAT, or conntrack layers from cleaning up idle business long connections too early, but it is a global kernel setting and affects TCP/HTTP/database/proxy behavior on the whole host. Review the business connection model before enabling it.
+
+If an application has its own 5-minute idle timeout, fix the application heartbeat or timeout too.
 
 ## Config Example
 
@@ -339,24 +378,20 @@ journalctl -u banhack233 -n 100 --no-pager
 banhack233 ban-list
 ```
 
-## TCP Long-Connection Verification
+## TCP Long-Connection Advanced Verification
+
+Default mode does not change TCP sysctl. Only run this after `banhack233 keepalive -write -tcp`.
 
 ```sh
-sshd -T | egrep 'clientalive|tcpkeepalive|permitrootlogin|passwordauthentication'
 sysctl net.ipv4.tcp_keepalive_time \
   net.ipv4.tcp_keepalive_intvl \
   net.ipv4.tcp_keepalive_probes \
   net.netfilter.nf_conntrack_tcp_timeout_established
 ```
 
-Expected:
+Expected after `-tcp`:
 
 ```text
-clientaliveinterval 60
-clientalivecountmax 1440
-permitrootlogin yes
-passwordauthentication yes
-tcpkeepalive yes
 net.ipv4.tcp_keepalive_time = 60
 net.ipv4.tcp_keepalive_intvl = 30
 net.ipv4.tcp_keepalive_probes = 10

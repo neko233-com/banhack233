@@ -185,12 +185,13 @@ func runSecureSSH(args []string) error {
 
 func runKeepalive(args []string) error {
 	fs := flag.NewFlagSet("banhack233 keepalive", flag.ContinueOnError)
-	write := fs.Bool("write", false, "write SSH and TCP keepalive config")
+	write := fs.Bool("write", false, "write SSH keepalive config")
 	hours := fs.Int("ssh-hours", 24, "SSH idle keepalive window in hours")
+	tcp := fs.Bool("tcp", false, "also write system TCP keepalive/conntrack sysctl; opt-in only")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	out, err := hardening.ApplyKeepalive(*write, *hours)
+	out, err := hardening.ApplyKeepalive(*write, *hours, *tcp)
 	if err != nil {
 		return err
 	}
@@ -218,7 +219,7 @@ Usage:
   banhack233 status [-config path]           show version, config, autostart, audit summary
   banhack233 secure-ssh [-config path]       preview SSH hardening block
   banhack233 secure-ssh -write               apply SSH hardening; requires allowed_users unless -force
-  banhack233 keepalive [-write]              keep SSH/root/password and long TCP sessions alive
+  banhack233 keepalive [-write] [-tcp]       keep SSH alive; TCP sysctl is opt-in
   banhack233 ban-list                        list active ban backend entries
   banhack233 unban <ip>                      remove a blocked IP
   banhack233 install-autostart [-config path] install systemd or Windows startup task

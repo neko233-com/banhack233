@@ -26,18 +26,37 @@ banhack233 status
 
 `banhack233` 是傻瓜式主机防入侵工具，主要解决这些问题：
 
-- SSH 密码爆破自动识别。
-- 达阈值后自动封禁攻击 IP。
-- 支持 root 密码登录场景。
-- 支持 SSH 长时间不断线，目标至少 24 小时。
-- 支持 TCP 业务长连接保活，避免系统/NAT/conntrack 过早清理连接。
-- 支持飞书、Discord、Slack、通用 webhook 和邮箱通知。
-- 支持开机自启动。
-- 支持 Linux、macOS、Windows。
-
-它不是只做 fail2ban，也不是逐项复制 fail2ban。它是几个常用主机安全能力的集合体：fail2ban 风格日志扫描与封禁、sshguard 风格 SSH 爆破防护、系统安全巡检、SSH/TCP 保活、通知告警、自启动部署。
+- 服务器需要 SSH 密码登录，甚至需要 root 密码登录，但仍然要防爆破。
+- 需要自动扫 SSH 登录失败日志，超过阈值后封禁 IP。
+- 需要开机自启动、通知告警、安全巡检、默认每 1 小时审计一次。
+- 需要 SSH 至少 24 小时不断线。
+- 需要 Linux、macOS、Windows 尽量自适应。
 
 English docs: [README-EN.md](README-EN.md)
+
+## 类似软件
+
+`banhack233` 不是逐项复制某一个项目，而是面向常见主机场景组合能力。类似或参考的软件/能力包括：
+
+1. `fail2ban`：日志扫描、阈值判断、封禁攻击 IP。
+2. `sshguard`：SSH 暴力破解防护。
+3. `denyhosts`：登录失败来源识别与阻断思路。
+4. `crowdsec`：安全事件检测、封禁、告警生态。
+5. `ufw` / `nftables` / `iptables` / Windows 防火墙：实际封禁后端。
+
+## 功能
+
+1. 系统安全巡检：SSH 策略、防火墙后端、系统更新/重启需求、通知渠道等。
+2. SSH 登录失败扫描：支持 auth.log、secure、Windows OpenSSH event log。
+3. 自动封禁：Linux 优先 `nft`，降级 `iptables`；Windows 使用防火墙规则。
+4. root 密码登录支持：不强制禁 root，不强制禁密码登录。
+5. SSH 安全基线：禁空密码、低重试、短登录宽限、保留强密码场景。
+6. SSH 24 小时保活：默认只改 SSH keepalive，不改系统 TCP sysctl。
+7. TCP 系统保活高级项：必须显式 `-tcp` 才会写全局 TCP keepalive/conntrack 参数。
+8. 多渠道通知：控制台、飞书/Lark、Discord、Slack、通用 webhook、邮箱。
+9. 邮箱 SMTP 自动识别：QQ、163、126、Gmail、Outlook、Hotmail、Live 等。
+10. 开机自启动：Linux systemd、macOS launchd、Windows schtasks。
+11. 安全默认值：`dry_run=true`、`start_at_end=true`、`ignore_ips` 白名单。
 
 ## 支持平台
 
@@ -94,7 +113,7 @@ banhack233 status
 banhack233 doctor
 ```
 
-4. 开启 SSH/TCP 长连接保活：
+4. 开启 SSH 24 小时保活：
 
 ```sh
 sudo banhack233 keepalive -write
@@ -175,17 +194,18 @@ sudo banhack233 secure-ssh -write -force
 
 注意：如果你当前只靠 SSH 管理服务器，执行前建议保留一个已登录 session，避免误配置导致无法连回。
 
-### SSH 24 小时保活 + TCP 长连接保活
+### SSH 24 小时保活
 
 ```sh
 sudo banhack233 keepalive -write
 ```
 
+默认只写入 SSH 配置，不修改系统 TCP keepalive / conntrack 参数，避免影响业务 TCP 长连接、HTTP、数据库连接池等服务。
+
 会写入：
 
 ```text
 /etc/ssh/sshd_config.d/99-banhack233-keepalive.conf
-/etc/sysctl.d/99-banhack233-keepalive.conf
 ```
 
 SSH 配置：
@@ -203,7 +223,21 @@ LoginGraceTime 30s
 
 含义：SSH 每 60 秒保活一次，连续 1440 次，约 24 小时。
 
-TCP 系统配置：
+### TCP 系统保活高级项
+
+默认不修改 TCP 系统参数。如果你明确知道服务器需要全局 TCP keepalive / conntrack 调整，可手动加 `-tcp`：
+
+```sh
+sudo banhack233 keepalive -write -tcp
+```
+
+这会额外写入：
+
+```text
+/etc/sysctl.d/99-banhack233-keepalive.conf
+```
+
+TCP 系统配置为：
 
 ```text
 net.ipv4.tcp_keepalive_time = 60
@@ -219,7 +253,7 @@ net.netfilter.nf_conntrack_tcp_timeout_established = 432000
 - 连续 10 次失败才认为断开。
 - conntrack established 超时 5 天。
 
-这能防止系统、NAT、conntrack 太快清理业务长连接。
+这能防止系统、NAT、conntrack 太快清理业务长连接，但属于全局内核参数，会影响整台机器上的 TCP/HTTP/数据库/代理等连接行为。生产服务器建议先评估业务连接模型，再决定是否启用。
 
 如果业务服务代码自己设置了 5 分钟 idle timeout，需要同时修改应用层心跳或超时配置。
 
@@ -486,37 +520,33 @@ sudo systemctl restart banhack233
 banhack233 ban-list
 ```
 
-## TCP 业务长连接演示
+## TCP 业务长连接高级项演示
 
-应用系统层保活：
+默认不建议修改系统 TCP 参数。只有确认业务需要全局 TCP keepalive / conntrack 调整时，才执行：
 
 ```sh
-sudo banhack233 keepalive -write
+sudo banhack233 keepalive -write -tcp
 ```
 
 验证：
 
 ```sh
-sshd -T | egrep 'clientalive|tcpkeepalive|permitrootlogin|passwordauthentication'
 sysctl net.ipv4.tcp_keepalive_time \
   net.ipv4.tcp_keepalive_intvl \
   net.ipv4.tcp_keepalive_probes \
   net.netfilter.nf_conntrack_tcp_timeout_established
 ```
 
-期望：
+启用 `-tcp` 后期望：
 
 ```text
-clientaliveinterval 60
-clientalivecountmax 1440
-permitrootlogin yes
-passwordauthentication yes
-tcpkeepalive yes
 net.ipv4.tcp_keepalive_time = 60
 net.ipv4.tcp_keepalive_intvl = 30
 net.ipv4.tcp_keepalive_probes = 10
 net.netfilter.nf_conntrack_tcp_timeout_established = 432000
 ```
+
+不启用 `-tcp` 时，这些系统参数保持原样。
 
 如果客户端仍 5 分钟掉线，检查：
 
@@ -567,7 +597,6 @@ sudo banhack233 install-autostart
 
 ```sh
 sshd -T | egrep 'clientalive|tcpkeepalive'
-sysctl net.ipv4.tcp_keepalive_time net.netfilter.nf_conntrack_tcp_timeout_established
 ```
 
 再确认是否有：
@@ -575,6 +604,12 @@ sysctl net.ipv4.tcp_keepalive_time net.netfilter.nf_conntrack_tcp_timeout_establ
 - 云负载均衡 idle timeout。
 - 业务网关 idle timeout。
 - 应用层主动断开。
+
+如果你明确启用了 `banhack233 keepalive -write -tcp`，再额外检查：
+
+```sh
+sysctl net.ipv4.tcp_keepalive_time net.netfilter.nf_conntrack_tcp_timeout_established
+```
 
 ### 没有封禁
 

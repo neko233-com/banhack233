@@ -12,3 +12,4 @@ caveman full. 精简、专业但完整的答复
 - root SSH 登录是受支持场景，不要写成必须禁止 root。
 - 文档描述 TCP 长连接时用“业务 TCP 长连接/自研 TCP 服务/客户端”，不要特指游戏。
 - 项目定位要写成多个能力集合体：fail2ban 风格、sshguard 风格、系统巡检、保活、通知、自启动。
+- `banhack233 keepalive -write` 默认只能描述/实现 SSH keepalive；全局 TCP keepalive/conntrack 参数必须显式 `-tcp` 才修改，并在文档中标成高级可选项。
