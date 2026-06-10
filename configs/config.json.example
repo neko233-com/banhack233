@@ -23,7 +23,7 @@
     "ssh": {
       "enabled": true,
       "password_authentication": true,
-      "permit_root_login": "no",
+      "permit_root_login": "yes",
       "allowed_users": [],
       "max_auth_tries": 3,
       "login_grace_time": "20s",

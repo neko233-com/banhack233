@@ -209,7 +209,7 @@ Usage:
   banhack233 version                         print version
 
 Safe password-SSH baseline:
-  keep PasswordAuthentication yes only for normal users
-  set PermitRootLogin no, PermitEmptyPasswords no, MaxAuthTries 3
+  keep PasswordAuthentication yes when needed
+  root login is supported; keep strong password, PermitEmptyPasswords no, MaxAuthTries 3
   enable banhack233 autostart, alerts, hourly doctor audit, and firewall bans`)
 }

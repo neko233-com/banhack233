@@ -126,7 +126,7 @@ func Default() Config {
 		Hardening: Hardening{SSH: SSHHardening{
 			Enabled:                  true,
 			PasswordAuthentication:   true,
-			PermitRootLogin:          "no",
+			PermitRootLogin:          "yes",
 			MaxAuthTries:             3,
 			LoginGraceTime:           "20s",
 			ClientAliveInterval:      300,

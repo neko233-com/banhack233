@@ -22,7 +22,6 @@ func Run(cfg config.Config) []Finding {
 	if runtime.GOOS == "linux" {
 		findings = append(findings, auditLinuxSSH(cfg)...)
 		findings = append(findings, auditLinuxFirewall()...)
-		findings = append(findings, auditLinuxListeningPorts()...)
 		findings = append(findings, auditLinuxUpdates()...)
 	}
 	if cfg.DryRun {
@@ -41,8 +40,8 @@ func auditLinuxSSH(cfg config.Config) []Finding {
 	if ssh.PasswordAuthentication {
 		out = append(out, Finding{Level: "info", Message: "SSH password login enabled by policy", Fix: "Use strong password, low MaxAuthTries, fail2ban automation, and alerts."})
 	}
-	if get(values, "PermitRootLogin") != "no" {
-		out = append(out, Finding{Level: "high", Message: "SSH root login not disabled", Fix: "Set PermitRootLogin no."})
+	if get(values, "PermitRootLogin") != strings.ToLower(ssh.PermitRootLogin) {
+		out = append(out, Finding{Level: "medium", Message: "SSH PermitRootLogin differs from config", Fix: "Run secure-ssh only after confirming current session safety."})
 	}
 	if get(values, "PasswordAuthentication") != boolWord(ssh.PasswordAuthentication) {
 		out = append(out, Finding{Level: "medium", Message: "SSH PasswordAuthentication differs from config", Fix: "Run banhack233 secure-ssh -write after confirming users."})
@@ -67,21 +66,6 @@ func auditLinuxFirewall() []Finding {
 		return nil
 	}
 	return []Finding{{Level: "high", Message: "no nft or iptables firewall backend found", Fix: "Install nftables or iptables."}}
-}
-
-func auditLinuxListeningPorts() []Finding {
-	out, err := exec.Command("sh", "-c", "ss -tulpen 2>/dev/null || netstat -tulpen 2>/dev/null || true").Output()
-	if err != nil {
-		return nil
-	}
-	text := string(out)
-	var findings []Finding
-	for _, port := range []string{":3306", ":5432", ":6379", ":27017", ":9200", ":11211"} {
-		if strings.Contains(text, port) {
-			findings = append(findings, Finding{Level: "medium", Message: "sensitive service appears to be listening on " + port, Fix: "Bind to 127.0.0.1 or restrict with cloud security group/firewall."})
-		}
-	}
-	return findings
 }
 
 func auditLinuxUpdates() []Finding {
