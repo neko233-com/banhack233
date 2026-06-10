@@ -6,39 +6,63 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
 
+func testAlert() Alert {
+	return alertFromTest("alert")
+}
+
 func TestWebhookBodyFormats(t *testing.T) {
-	tests := []struct {
-		format string
-		key    string
-	}{
-		{format: "json", key: "text"},
-		{format: "discord", key: "content"},
-		{format: "slack", key: "text"},
+	alert := testAlert()
+	body, contentType, err := webhookBody("json", alert, "")
+	if err != nil {
+		t.Fatalf("webhookBody(json) error: %v", err)
 	}
-	for _, tt := range tests {
-		body, contentType, err := webhookBody(tt.format, "alert", "")
-		if err != nil {
-			t.Fatalf("webhookBody(%q) error: %v", tt.format, err)
-		}
-		if contentType != "application/json" {
-			t.Fatalf("webhookBody(%q) content type=%q", tt.format, contentType)
-		}
-		var payload map[string]string
-		if err := json.Unmarshal(body, &payload); err != nil {
-			t.Fatalf("webhookBody(%q) json error: %v", tt.format, err)
-		}
-		if payload[tt.key] != "alert" {
-			t.Fatalf("webhookBody(%q)[%q]=%q", tt.format, tt.key, payload[tt.key])
-		}
+	if contentType != "application/json" {
+		t.Fatalf("content type=%q", contentType)
+	}
+	var jsonPayload map[string]any
+	if err := json.Unmarshal(body, &jsonPayload); err != nil {
+		t.Fatal(err)
+	}
+	if jsonPayload["title"] == nil || jsonPayload["fields"] == nil {
+		t.Fatalf("payload=%+v", jsonPayload)
+	}
+
+	body, _, err = webhookBody("discord", alert, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var discordPayload struct {
+		Embeds []map[string]any `json:"embeds"`
+	}
+	if err := json.Unmarshal(body, &discordPayload); err != nil {
+		t.Fatal(err)
+	}
+	if len(discordPayload.Embeds) != 1 {
+		t.Fatalf("embeds=%d", len(discordPayload.Embeds))
+	}
+
+	body, _, err = webhookBody("slack", alert, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var slackPayload struct {
+		Blocks []map[string]any `json:"blocks"`
+	}
+	if err := json.Unmarshal(body, &slackPayload); err != nil {
+		t.Fatal(err)
+	}
+	if len(slackPayload.Blocks) == 0 {
+		t.Fatal("expected slack blocks")
 	}
 }
 
 func TestWebhookBodyFeishu(t *testing.T) {
-	body, contentType, err := webhookBody("feishu", "alert", "")
+	body, contentType, err := webhookBody("feishu", testAlert(), "")
 	if err != nil {
 		t.Fatalf("webhookBody(feishu) error: %v", err)
 	}
@@ -46,22 +70,23 @@ func TestWebhookBodyFeishu(t *testing.T) {
 		t.Fatalf("content type=%q", contentType)
 	}
 	var payload struct {
-		MessageType string `json:"msg_type"`
-		Content     struct {
-			Text string `json:"text"`
-		} `json:"content"`
+		MessageType string         `json:"msg_type"`
+		Card        map[string]any `json:"card"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		t.Fatalf("json error: %v", err)
 	}
-	if payload.MessageType != "text" || payload.Content.Text != "alert" {
-		t.Fatalf("payload=%+v", payload)
+	if payload.MessageType != "interactive" {
+		t.Fatalf("msg_type=%q", payload.MessageType)
+	}
+	if payload.Card["schema"] != "2.0" {
+		t.Fatalf("card=%+v", payload.Card)
 	}
 }
 
 func TestWebhookBodyFeishuWithSecret(t *testing.T) {
 	const secret = "test-secret"
-	body, _, err := webhookBody("feishu", "alert", secret)
+	body, _, err := webhookBody("feishu", testAlert(), secret)
 	if err != nil {
 		t.Fatalf("webhookBody(feishu, secret) error: %v", err)
 	}
@@ -102,14 +127,14 @@ func TestFeishuSign(t *testing.T) {
 }
 
 func TestWebhookBodyTextAndUnknown(t *testing.T) {
-	body, contentType, err := webhookBody("text", "alert", "")
+	body, contentType, err := webhookBody("text", testAlert(), "")
 	if err != nil {
 		t.Fatalf("webhookBody(text) error: %v", err)
 	}
-	if string(body) != "alert" || contentType != "text/plain; charset=utf-8" {
+	if !strings.Contains(string(body), "banhack233") || contentType != "text/plain; charset=utf-8" {
 		t.Fatalf("body=%q contentType=%q", string(body), contentType)
 	}
-	if _, _, err := webhookBody("unknown", "alert", ""); err == nil {
+	if _, _, err := webhookBody("unknown", testAlert(), ""); err == nil {
 		t.Fatal("expected unknown format error")
 	}
 }

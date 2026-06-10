@@ -482,7 +482,11 @@ banhack233 notify-test -message "自定义测试内容"
 }
 ```
 
-飞书机器人若开启「签名校验」，必须配置 `secret`；程序会自动在请求里附带 `timestamp` 和 `sign`（HmacSHA256 + Base64，算法见[飞书官方文档](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot)）。未开启签名校验时可省略 `secret`。
+飞书使用 **交互卡片**（`msg_type=interactive`，JSON 2.0），按告警类型自动配色：封禁红色、模拟封禁/巡检橙色、测试蓝色。
+
+若机器人开启「签名校验」，配置 `secret`；程序自动附带 `timestamp` 和 `sign`（HmacSHA256 + Base64，见[飞书文档](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot)）。未开启时可省略 `secret`。
+
+各渠道统一按告警类型包装：**飞书**交互卡片、**Discord** embed、**Slack** Block Kit、**邮箱** HTML 卡片（含纯文本兜底）、**控制台**边框文本、**json webhook** 结构化字段。
 
 测试通知（推荐，直接向已启用渠道发测试消息）：
 
@@ -515,7 +519,7 @@ banhack233 test
 }
 ```
 
-Discord 使用 `{"content":"..."}` payload。
+Discord 使用 embed 卡片，字段展示规则、IP、处置等信息。
 
 ## Slack 通知
 
@@ -532,7 +536,7 @@ Discord 使用 `{"content":"..."}` payload。
 }
 ```
 
-Slack 使用 `{"text":"..."}` payload。
+Slack 使用 Block Kit 区块消息，含标题、字段分区与时间脚注。
 
 ## 通用 webhook 通知
 
@@ -560,11 +564,11 @@ Slack 使用 `{"text":"..."}` payload。
 
 | format | payload |
 | --- | --- |
-| `text` | 纯文本 |
-| `json` | `{"text":"..."}` |
-| `discord` | `{"content":"..."}` |
-| `slack` | `{"text":"..."}` |
-| `feishu` / `lark` | `{"msg_type":"text","content":{"text":"..."}}`；开启签名校验时配置 `secret`，自动附带 `timestamp`/`sign` |
+| `text` | 结构化纯文本 |
+| `json` | `{"title","kind","time","fields","detail","text"}` 结构化 JSON |
+| `discord` | embed 卡片 |
+| `slack` | Block Kit 区块消息 |
+| `feishu` / `lark` | 交互卡片 `msg_type=interactive`；签名校验配置 `secret` |
 
 ## 邮箱通知
 

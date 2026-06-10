@@ -1,6 +1,9 @@
 package notify
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestInferSMTP(t *testing.T) {
 	tests := map[string]SMTPPreset{
@@ -17,5 +20,25 @@ func TestInferSMTP(t *testing.T) {
 		if got != want {
 			t.Fatalf("InferSMTP(%q)=%+v want %+v", addr, got, want)
 		}
+	}
+}
+
+func TestBuildEmailMessageMultipart(t *testing.T) {
+	msg := string(buildEmailMessage("a@qq.com", "b@example.com", "主题", "plain", "<html>card</html>"))
+	if !strings.Contains(msg, "multipart/alternative") {
+		t.Fatalf("missing multipart: %q", msg)
+	}
+	if !strings.Contains(msg, "text/plain") || !strings.Contains(msg, "text/html") {
+		t.Fatal("missing parts")
+	}
+}
+
+func TestBuildEmailMessagePlainOnly(t *testing.T) {
+	msg := string(buildEmailMessage("a@qq.com", "b@example.com", "subject", "plain only", ""))
+	if strings.Contains(msg, "multipart") {
+		t.Fatalf("unexpected multipart: %q", msg)
+	}
+	if !strings.Contains(msg, "plain only") {
+		t.Fatal("missing body")
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/neko233-com/banhack233/internal/config"
 )
@@ -21,15 +20,8 @@ type TestResult struct {
 	Err     error
 }
 
-func DefaultTestMessage() string {
-	return fmt.Sprintf("banhack233 notify-test ok time=%s", time.Now().Format(time.RFC3339))
-}
-
 func Test(ctx context.Context, cfg config.NotificationSet, opts TestOptions) ([]TestResult, error) {
-	text := strings.TrimSpace(opts.Message)
-	if text == "" {
-		text = DefaultTestMessage()
-	}
+	alert := alertFromTest(opts.Message)
 	filter := parseChannelFilter(opts.Channels)
 
 	var results []TestResult
@@ -49,7 +41,7 @@ func Test(ctx context.Context, cfg config.NotificationSet, opts TestOptions) ([]
 
 	if filter.match("console") {
 		if cfg.Console {
-			fmt.Println(text)
+			fmt.Println(alert.ConsoleText())
 			appendResult("console", false, "", nil)
 		} else {
 			appendResult("console", true, "disabled", nil)
@@ -62,7 +54,7 @@ func Test(ctx context.Context, cfg config.NotificationSet, opts TestOptions) ([]
 		} else if strings.TrimSpace(cfg.Feishu.URL) == "" {
 			appendResult("feishu", true, "missing url", nil)
 		} else {
-			err := sendWebhook(ctx, config.WebhookTarget{Name: "feishu", Enabled: true, URL: cfg.Feishu.URL, Format: "feishu", Secret: cfg.Feishu.Secret}, text)
+			err := sendWebhook(ctx, config.WebhookTarget{Name: "feishu", Enabled: true, URL: cfg.Feishu.URL, Format: "feishu", Secret: cfg.Feishu.Secret}, alert)
 			appendResult("feishu", false, "", err)
 		}
 	}
@@ -73,7 +65,7 @@ func Test(ctx context.Context, cfg config.NotificationSet, opts TestOptions) ([]
 		} else if strings.TrimSpace(cfg.Discord.URL) == "" {
 			appendResult("discord", true, "missing url", nil)
 		} else {
-			err := sendWebhook(ctx, config.WebhookTarget{Name: "discord", Enabled: true, URL: cfg.Discord.URL, Format: "discord"}, text)
+			err := sendWebhook(ctx, config.WebhookTarget{Name: "discord", Enabled: true, URL: cfg.Discord.URL, Format: "discord"}, alert)
 			appendResult("discord", false, "", err)
 		}
 	}
@@ -84,7 +76,7 @@ func Test(ctx context.Context, cfg config.NotificationSet, opts TestOptions) ([]
 		} else if strings.TrimSpace(cfg.Slack.URL) == "" {
 			appendResult("slack", true, "missing url", nil)
 		} else {
-			err := sendWebhook(ctx, config.WebhookTarget{Name: "slack", Enabled: true, URL: cfg.Slack.URL, Format: "slack"}, text)
+			err := sendWebhook(ctx, config.WebhookTarget{Name: "slack", Enabled: true, URL: cfg.Slack.URL, Format: "slack"}, alert)
 			appendResult("slack", false, "", err)
 		}
 	}
@@ -106,7 +98,7 @@ func Test(ctx context.Context, cfg config.NotificationSet, opts TestOptions) ([]
 			appendResult(channel, true, "missing url", nil)
 			continue
 		}
-		err := sendWebhook(ctx, target, text)
+		err := sendWebhook(ctx, target, alert)
 		appendResult(channel, false, "", err)
 	}
 
@@ -114,7 +106,7 @@ func Test(ctx context.Context, cfg config.NotificationSet, opts TestOptions) ([]
 		if !cfg.Email.Enabled {
 			appendResult("email", true, "disabled", nil)
 		} else {
-			err := SendEmail(cfg.Email, "banhack233 notify-test", text)
+			err := SendEmail(cfg.Email, alert.EmailSubject(), alert.EmailBody(), alert.EmailHTML())
 			appendResult("email", false, "", err)
 		}
 	}

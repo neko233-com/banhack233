@@ -3,6 +3,7 @@ package notify
 import (
 	"crypto/tls"
 	"fmt"
+	"mime"
 	"net"
 	"net/smtp"
 	"strings"
@@ -35,7 +36,7 @@ func InferSMTP(addr string) (SMTPPreset, bool) {
 	return preset, found
 }
 
-func SendEmail(cfg config.EmailConfig, subject, body string) error {
+func SendEmail(cfg config.EmailConfig, subject, textBody, htmlBody string) error {
 	if strings.TrimSpace(cfg.From) == "" || strings.TrimSpace(cfg.To) == "" {
 		return fmt.Errorf("email from/to required")
 	}
@@ -47,15 +48,46 @@ func SendEmail(cfg config.EmailConfig, subject, body string) error {
 		cfg.SMTPHost = preset.Host
 		cfg.SMTPPort = preset.Port
 	}
-	msg := "From: " + cfg.From + "\r\n" +
-		"To: " + cfg.To + "\r\n" +
-		"Subject: " + subject + "\r\n" +
-		"Content-Type: text/plain; charset=utf-8\r\n\r\n" + body
+	msg := buildEmailMessage(cfg.From, cfg.To, subject, textBody, htmlBody)
 	auth := smtp.PlainAuth("", cfg.From, cfg.Password, cfg.SMTPHost)
 	if cfg.SMTPPort == 465 {
-		return sendImplicitTLS(cfg, auth, []byte(msg))
+		return sendImplicitTLS(cfg, auth, msg)
 	}
-	return smtp.SendMail(net.JoinHostPort(cfg.SMTPHost, fmt.Sprint(cfg.SMTPPort)), auth, cfg.From, recipients(cfg.To), []byte(msg))
+	return smtp.SendMail(net.JoinHostPort(cfg.SMTPHost, fmt.Sprint(cfg.SMTPPort)), auth, cfg.From, recipients(cfg.To), msg)
+}
+
+func buildEmailMessage(from, to, subject, textBody, htmlBody string) []byte {
+	encodedSubject := mime.QEncoding.Encode("utf-8", subject)
+	headers := []string{
+		"From: " + from,
+		"To: " + to,
+		"Subject: " + encodedSubject,
+		"MIME-Version: 1.0",
+	}
+	if strings.TrimSpace(htmlBody) == "" {
+		headers = append(headers, "Content-Type: text/plain; charset=utf-8")
+		return []byte(strings.Join(headers, "\r\n") + "\r\n\r\n" + textBody)
+	}
+	boundary := "banhack233-" + fmt.Sprint(len(textBody)+len(htmlBody))
+	headers = append(headers, "Content-Type: multipart/alternative; boundary="+boundary)
+	var body strings.Builder
+	body.WriteString(strings.Join(headers, "\r\n"))
+	body.WriteString("\r\n\r\n")
+	writePart := func(contentType, content string) {
+		body.WriteString("--")
+		body.WriteString(boundary)
+		body.WriteString("\r\nContent-Type: ")
+		body.WriteString(contentType)
+		body.WriteString("\r\n\r\n")
+		body.WriteString(content)
+		body.WriteString("\r\n")
+	}
+	writePart("text/plain; charset=utf-8", textBody)
+	writePart("text/html; charset=utf-8", htmlBody)
+	body.WriteString("--")
+	body.WriteString(boundary)
+	body.WriteString("--\r\n")
+	return []byte(body.String())
 }
 
 func sendImplicitTLS(cfg config.EmailConfig, auth smtp.Auth, msg []byte) error {

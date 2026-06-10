@@ -343,9 +343,9 @@ Supported channels:
 | Channel | Field | Payload |
 | --- | --- | --- |
 | Console | `console` | stdout / systemd journal |
-| Feishu / Lark | `feishu` | `msg_type=text` |
-| Discord | `discord` | `content` |
-| Slack | `slack` | `text` |
+| Feishu / Lark | `feishu` | Interactive card (`msg_type=interactive`) |
+| Discord | `discord` | Embed card |
+| Slack | `slack` | Block Kit message |
 | Generic webhook | `webhooks[]` | `text`, `json`, `discord`, `slack`, `feishu` |
 | Email | `email` | SMTP |
 
@@ -363,7 +363,11 @@ Supported channels:
 }
 ```
 
-If the bot has signature verification enabled, set `secret`; the client adds `timestamp` and `sign` automatically (HmacSHA256 + Base64 per [Feishu docs](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot)). Omit `secret` when verification is off.
+Feishu messages use interactive cards (JSON 2.0) with color-coded headers: red for bans, orange for dry-run/audit, blue for tests.
+
+If signature verification is enabled, set `secret`; the client adds `timestamp` and `sign` automatically (HmacSHA256 + Base64 per [Feishu docs](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot)). Omit `secret` when verification is off.
+
+All channels share the same alert fields with native wrappers: Feishu interactive cards, Discord embeds, Slack Block Kit, HTML email (with plain-text fallback), bordered console output, and structured JSON for `json` webhooks.
 
 Test notifications (sends to all enabled channels):
 
@@ -427,11 +431,11 @@ Formats:
 
 | Format | Payload |
 | --- | --- |
-| `text` | Plain text |
-| `json` | `{"text":"..."}` |
-| `discord` | `{"content":"..."}` |
-| `slack` | `{"text":"..."}` |
-| `feishu` / `lark` | `{"msg_type":"text","content":{"text":"..."}}`; set `secret` when signature verification is on |
+| `text` | Structured plain text |
+| `json` | Structured JSON (`title`, `kind`, `time`, `fields`, `detail`, `text`) |
+| `discord` | Embed card |
+| `slack` | Block Kit message |
+| `feishu` / `lark` | Interactive card; set `secret` when signature verification is on |
 
 ### Email
 

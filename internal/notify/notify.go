@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -27,22 +26,22 @@ type Event struct {
 }
 
 func Send(ctx context.Context, cfg config.NotificationSet, ev Event) error {
-	text := fmt.Sprintf("banhack233: rule=%s ip=%s action=%s count=%d dry_run=%t time=%s", ev.Rule, ev.IP, ev.Action, ev.Count, ev.DryRun, ev.When.Format(time.RFC3339))
+	alert := alertFromEvent(ev)
 	if cfg.Console {
-		fmt.Println(text)
+		fmt.Println(alert.ConsoleText())
 	}
 	if cfg.Feishu.Enabled {
-		if err := sendWebhook(ctx, config.WebhookTarget{Name: "feishu", Enabled: true, URL: cfg.Feishu.URL, Format: "feishu", Secret: cfg.Feishu.Secret}, text); err != nil {
+		if err := sendWebhook(ctx, config.WebhookTarget{Name: "feishu", Enabled: true, URL: cfg.Feishu.URL, Format: "feishu", Secret: cfg.Feishu.Secret}, alert); err != nil {
 			return err
 		}
 	}
 	if cfg.Discord.Enabled {
-		if err := sendWebhook(ctx, config.WebhookTarget{Name: "discord", Enabled: true, URL: cfg.Discord.URL, Format: "discord"}, text); err != nil {
+		if err := sendWebhook(ctx, config.WebhookTarget{Name: "discord", Enabled: true, URL: cfg.Discord.URL, Format: "discord"}, alert); err != nil {
 			return err
 		}
 	}
 	if cfg.Slack.Enabled {
-		if err := sendWebhook(ctx, config.WebhookTarget{Name: "slack", Enabled: true, URL: cfg.Slack.URL, Format: "slack"}, text); err != nil {
+		if err := sendWebhook(ctx, config.WebhookTarget{Name: "slack", Enabled: true, URL: cfg.Slack.URL, Format: "slack"}, alert); err != nil {
 			return err
 		}
 	}
@@ -50,20 +49,20 @@ func Send(ctx context.Context, cfg config.NotificationSet, ev Event) error {
 		if !target.Enabled {
 			continue
 		}
-		if err := sendWebhook(ctx, target, text); err != nil {
+		if err := sendWebhook(ctx, target, alert); err != nil {
 			return err
 		}
 	}
 	if cfg.Email.Enabled {
-		if err := SendEmail(cfg.Email, "banhack233 alert", text); err != nil {
+		if err := SendEmail(cfg.Email, alert.EmailSubject(), alert.EmailBody(), alert.EmailHTML()); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func sendWebhook(ctx context.Context, target config.WebhookTarget, text string) error {
-	body, contentType, err := webhookBody(target.Format, text, target.Secret)
+func sendWebhook(ctx context.Context, target config.WebhookTarget, alert Alert) error {
+	body, contentType, err := webhookBody(target.Format, alert, target.Secret)
 	if err != nil {
 		return err
 	}
@@ -98,29 +97,28 @@ func feishuSign(timestamp, secret string) string {
 	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
 }
 
-func webhookBody(format, text, secret string) ([]byte, string, error) {
+func webhookBody(format string, alert Alert, secret string) ([]byte, string, error) {
 	switch strings.ToLower(strings.TrimSpace(format)) {
 	case "", "text":
-		return []byte(text), "text/plain; charset=utf-8", nil
+		return []byte(alert.PlainText()), "text/plain; charset=utf-8", nil
 	case "json":
-		body, err := json.Marshal(map[string]string{"text": text})
+		body, err := json.Marshal(alert.JSONPayload())
 		return body, "application/json", err
 	case "discord":
-		body, err := json.Marshal(map[string]string{"content": text})
+		body, err := json.Marshal(map[string]any{"embeds": []map[string]any{alert.discordEmbed()}})
 		return body, "application/json", err
 	case "slack":
-		body, err := json.Marshal(map[string]string{"text": text})
+		body, err := json.Marshal(map[string]any{
+			"text":   alert.Title,
+			"blocks": alert.slackBlocks(),
+		})
 		return body, "application/json", err
 	case "feishu", "lark":
 		payload := map[string]any{
-			"msg_type": "text",
-			"content":  map[string]string{"text": text},
+			"msg_type": "interactive",
+			"card":     alert.feishuCard(),
 		}
-		if strings.TrimSpace(secret) != "" {
-			timestamp := strconv.FormatInt(time.Now().Unix(), 10)
-			payload["timestamp"] = timestamp
-			payload["sign"] = feishuSign(timestamp, secret)
-		}
+		applyFeishuSign(payload, secret)
 		body, err := json.Marshal(payload)
 		return body, "application/json", err
 	default:
