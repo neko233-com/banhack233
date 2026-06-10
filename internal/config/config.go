@@ -20,6 +20,7 @@ type Config struct {
 	Rules         []Rule          `json:"rules"`
 	Hardening     Hardening       `json:"hardening"`
 	Malware       MalwareConfig   `json:"malware"`
+	GeoIP         GeoIPConfig     `json:"geoip"`
 	Notifications NotificationSet `json:"notifications"`
 }
 
@@ -34,12 +35,24 @@ type Rule struct {
 }
 
 type NotificationSet struct {
-	Feishu   WebhookConfig   `json:"feishu"`
-	Discord  WebhookConfig   `json:"discord"`
-	Slack    WebhookConfig   `json:"slack"`
-	Webhooks []WebhookTarget `json:"webhooks"`
-	Email    EmailConfig     `json:"email"`
-	Console  bool            `json:"console"`
+	Feishu   WebhookConfig     `json:"feishu"`
+	Discord  WebhookConfig     `json:"discord"`
+	Slack    WebhookConfig     `json:"slack"`
+	Webhooks []WebhookTarget   `json:"webhooks"`
+	Email    EmailConfig       `json:"email"`
+	Console  bool              `json:"console"`
+	Batch    NotifyBatchConfig `json:"batch"`
+}
+
+type GeoIPConfig struct {
+	Enabled bool   `json:"enabled"`
+	DBPath  string `json:"db_path"`
+}
+
+type NotifyBatchConfig struct {
+	Enabled  bool     `json:"enabled"`
+	Interval Duration `json:"interval"`
+	MaxItems int      `json:"max_items"`
 }
 
 type Hardening struct {
@@ -161,7 +174,18 @@ func Default() Config {
 			ReportDir:  defaultReportPath(),
 			ReportKeep: 50,
 		},
-		Notifications: NotificationSet{Console: true},
+		GeoIP: GeoIPConfig{
+			Enabled: true,
+			DBPath:  defaultGeoIPPath(),
+		},
+		Notifications: NotificationSet{
+			Console: true,
+			Batch: NotifyBatchConfig{
+				Enabled:  true,
+				Interval: Duration{60 * time.Second},
+				MaxItems: 20,
+			},
+		},
 	}
 }
 
@@ -201,6 +225,17 @@ func (c *Config) Normalize() error {
 	}
 	if c.Malware.ReportKeep <= 0 {
 		c.Malware.ReportKeep = 50
+	}
+	if strings.TrimSpace(c.GeoIP.DBPath) == "" {
+		c.GeoIP.DBPath = defaultGeoIPPath()
+	}
+	if c.Notifications.Batch.Enabled {
+		if c.Notifications.Batch.Interval.Duration <= 0 {
+			c.Notifications.Batch.Interval = Duration{60 * time.Second}
+		}
+		if c.Notifications.Batch.MaxItems <= 0 {
+			c.Notifications.Batch.MaxItems = 20
+		}
 	}
 	for i := range c.Rules {
 		r := &c.Rules[i]
@@ -249,6 +284,20 @@ func defaultStatePath() string {
 		return "/usr/local/var/banhack233/state.json"
 	}
 	return "/var/lib/banhack233/state.json"
+}
+
+func defaultGeoIPPath() string {
+	if runtime.GOOS == "windows" {
+		base := os.Getenv("ProgramData")
+		if base == "" {
+			base = `C:\ProgramData`
+		}
+		return filepath.Join(base, "banhack233", "ip2region_v4.xdb")
+	}
+	if runtime.GOOS == "darwin" {
+		return "/usr/local/var/banhack233/ip2region_v4.xdb"
+	}
+	return "/var/lib/banhack233/ip2region_v4.xdb"
 }
 
 func defaultAuthLogs() []string {

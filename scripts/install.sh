@@ -64,9 +64,16 @@ else
         sudo mkdir -p "$CONFIG_DIR"
     fi
     if [ "$OS" = "linux" ]; then
-        sudo mkdir -p /var/lib/banhack233
+        GEOIP_DIR="/var/lib/banhack233"
+        sudo mkdir -p "$GEOIP_DIR"
     elif [ "$OS" = "darwin" ]; then
-        sudo mkdir -p /usr/local/var/banhack233
+        GEOIP_DIR="/usr/local/var/banhack233"
+        sudo mkdir -p "$GEOIP_DIR"
+    fi
+    GEOIP_DB="${GEOIP_DIR}/ip2region_v4.xdb"
+    if [ ! -f "$GEOIP_DB" ]; then
+        echo "download ip2region db"
+        sudo curl -fsSL "https://github.com/lionsoul2014/ip2region/raw/master/data/ip2region_v4.xdb" -o "$GEOIP_DB"
     fi
 fi
 

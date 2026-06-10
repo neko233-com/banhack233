@@ -17,16 +17,20 @@ import (
 )
 
 type Event struct {
-	Rule   string
-	IP     string
-	Action string
-	Count  int
-	When   time.Time
-	DryRun bool
+	Rule     string
+	IP       string
+	Location string
+	Action   string
+	Count    int
+	When     time.Time
+	DryRun   bool
 }
 
 func Send(ctx context.Context, cfg config.NotificationSet, ev Event) error {
-	alert := alertFromEvent(ev)
+	return sendAlert(ctx, cfg, alertFromEvent(ev))
+}
+
+func sendAlert(ctx context.Context, cfg config.NotificationSet, alert Alert) error {
 	if cfg.Console {
 		fmt.Println(alert.ConsoleText())
 	}

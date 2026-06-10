@@ -16,35 +16,58 @@ import (
 )
 
 func Run(ctx context.Context, cfg config.Config) error {
+	dispatcher := notify.NewDispatcher(cfg.Notifications, cfg.GeoIP)
+	defer dispatcher.Close()
 	ticker := time.NewTicker(cfg.Interval.Duration)
 	defer ticker.Stop()
-	for {
-		if err := RunOnce(ctx, cfg); err != nil {
-			fmt.Fprintln(os.Stderr, "scan error:", err)
+	runCycle := func() error {
+		if err := dispatcher.FlushIfDue(ctx); err != nil {
+			return err
 		}
+		return runOnce(ctx, cfg, dispatcher)
+	}
+	if err := runCycle(); err != nil {
+		fmt.Fprintln(os.Stderr, "scan error:", err)
+	}
+	for {
 		select {
 		case <-ctx.Done():
+			if err := dispatcher.Flush(ctx); err != nil {
+				return err
+			}
 			return ctx.Err()
 		case <-ticker.C:
+			if err := runCycle(); err != nil {
+				fmt.Fprintln(os.Stderr, "scan error:", err)
+			}
 		}
 	}
 }
 
 func RunOnce(ctx context.Context, cfg config.Config) error {
+	dispatcher := notify.NewDispatcher(cfg.Notifications, cfg.GeoIP)
+	defer func() {
+		_ = dispatcher.Flush(ctx)
+		_ = dispatcher.Close()
+	}()
+	return runOnce(ctx, cfg, dispatcher)
+}
+
+func runOnce(ctx context.Context, cfg config.Config, dispatcher *notify.Dispatcher) error {
 	st, err := loadState(cfg.StatePath)
 	if err != nil {
 		return err
 	}
 	now := time.Now()
 	for _, rule := range cfg.Rules {
-		if err := scanRule(ctx, cfg, rule, &st, now); err != nil {
+		if err := scanRule(ctx, cfg, rule, dispatcher, &st, now); err != nil {
 			return err
 		}
 	}
 	if st.LastAudit.IsZero() || now.Sub(st.LastAudit) >= cfg.AuditInterval.Duration {
 		findings := audit.Run(cfg)
 		if len(findings) > 0 {
-			if err := notify.Send(ctx, cfg.Notifications, notify.Event{Rule: "audit", IP: "-", Action: audit.Format(findings), Count: len(findings), When: now, DryRun: cfg.DryRun}); err != nil {
+			if err := dispatcher.NotifyAudit(ctx, notify.Event{Rule: "audit", IP: "-", Action: audit.Format(findings), Count: len(findings), When: now, DryRun: cfg.DryRun}); err != nil {
 				return err
 			}
 		}
@@ -53,14 +76,14 @@ func RunOnce(ctx context.Context, cfg config.Config) error {
 	return saveState(cfg.StatePath, st)
 }
 
-func scanRule(ctx context.Context, cfg config.Config, rule config.Rule, st *state, now time.Time) error {
+func scanRule(ctx context.Context, cfg config.Config, rule config.Rule, dispatcher *notify.Dispatcher, st *state, now time.Time) error {
 	for _, path := range rule.LogPaths {
 		if strings.HasPrefix(path, "eventlog:") {
 			lines, err := readWindowsEvents(strings.TrimPrefix(path, "eventlog:"))
 			if err != nil {
 				return err
 			}
-			if err := scanLines(ctx, cfg, rule, st, now, lines); err != nil {
+			if err := scanLines(ctx, cfg, rule, dispatcher, st, now, lines); err != nil {
 				return err
 			}
 			continue
@@ -84,14 +107,14 @@ func scanRule(ctx context.Context, cfg config.Config, rule config.Rule, st *stat
 			return err
 		}
 		st.Offsets[path] = offset
-		if err := scanLines(ctx, cfg, rule, st, now, lines); err != nil {
+		if err := scanLines(ctx, cfg, rule, dispatcher, st, now, lines); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func scanLines(ctx context.Context, cfg config.Config, rule config.Rule, st *state, now time.Time, lines []string) error {
+func scanLines(ctx context.Context, cfg config.Config, rule config.Rule, dispatcher *notify.Dispatcher, st *state, now time.Time, lines []string) error {
 	matchers, err := compilePatterns(rule.Patterns)
 	if err != nil {
 		return err
@@ -117,7 +140,7 @@ func scanLines(ctx context.Context, cfg config.Config, rule config.Rule, st *sta
 			return err
 		}
 		st.Bans[key] = now.Add(rule.BanTime.Duration)
-		if err := notify.Send(ctx, cfg.Notifications, notify.Event{Rule: rule.Name, IP: ip, Action: action, Count: len(st.Hits[key]), When: now, DryRun: cfg.DryRun}); err != nil {
+		if err := dispatcher.NotifyBan(ctx, notify.Event{Rule: rule.Name, IP: ip, Action: action, Count: len(st.Hits[key]), When: now, DryRun: cfg.DryRun}); err != nil {
 			return err
 		}
 	}

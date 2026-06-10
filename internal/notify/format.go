@@ -10,9 +10,10 @@ import (
 type alertKind string
 
 const (
-	alertBan   alertKind = "ban"
-	alertAudit alertKind = "audit"
-	alertTest  alertKind = "test"
+	alertBan      alertKind = "ban"
+	alertBanBatch alertKind = "ban_batch"
+	alertAudit    alertKind = "audit"
+	alertTest     alertKind = "test"
 )
 
 type alertRow struct {
@@ -20,16 +21,28 @@ type alertRow struct {
 	Value string
 }
 
+type banBatchItem struct {
+	Rule     string
+	IP       string
+	Location string
+	Action   string
+	Count    int
+	When     time.Time
+	DryRun   bool
+}
+
 type Alert struct {
 	Kind   alertKind
 	Title  string
 	Rule   string
 	IP     string
+	Location string
 	Action string
 	Count  int
 	DryRun bool
 	When   time.Time
 	Detail string
+	Items  []banBatchItem
 }
 
 func alertFromEvent(ev Event) Alert {
@@ -48,20 +61,61 @@ func alertFromEvent(ev Event) Alert {
 			Detail: ev.Action,
 		}
 	}
-	title := "banhack233 安全告警"
-	if ev.DryRun {
-		title = "banhack233 模拟封禁"
+	return Alert{
+		Kind:     alertBan,
+		Title:    banTitle(ev.DryRun, 1),
+		Rule:     ev.Rule,
+		IP:       ev.IP,
+		Location: ev.Location,
+		Action:   ev.Action,
+		Count:    ev.Count,
+		DryRun:   ev.DryRun,
+		When:     when,
+	}
+}
+
+func alertFromBanBatch(items []Event) Alert {
+	when := time.Now()
+	for _, item := range items {
+		if !item.When.IsZero() {
+			when = item.When
+			break
+		}
+	}
+	dryRun := items[0].DryRun
+	batch := make([]banBatchItem, 0, len(items))
+	for _, item := range items {
+		batch = append(batch, banBatchItem{
+			Rule:     item.Rule,
+			IP:       item.IP,
+			Location: item.Location,
+			Action:   item.Action,
+			Count:    item.Count,
+			When:     item.When,
+			DryRun:   item.DryRun,
+		})
+		if item.DryRun {
+			dryRun = true
+		}
 	}
 	return Alert{
-		Kind:   alertBan,
-		Title:  title,
-		Rule:   ev.Rule,
-		IP:     ev.IP,
-		Action: ev.Action,
-		Count:  ev.Count,
-		DryRun: ev.DryRun,
+		Kind:   alertBanBatch,
+		Title:  banTitle(dryRun, len(items)),
+		DryRun: dryRun,
 		When:   when,
+		Count:  len(items),
+		Items:  batch,
 	}
+}
+
+func banTitle(dryRun bool, count int) string {
+	if dryRun {
+		return "banhack233 模拟封禁"
+	}
+	if count > 1 {
+		return "banhack233 批量封禁"
+	}
+	return "banhack233 IP 已封禁"
 }
 
 func alertFromTest(message string) Alert {
@@ -83,7 +137,7 @@ func (a Alert) accentColor() string {
 		return "#3498DB"
 	case alertAudit:
 		return "#F39C12"
-	case alertBan:
+	case alertBan, alertBanBatch:
 		if a.DryRun {
 			return "#F39C12"
 		}
@@ -103,6 +157,12 @@ func (a Alert) rows() []alertRow {
 			rows = append(rows, alertRow{Label: "模式", Value: "dry_run"})
 		}
 		return rows
+	case alertBanBatch:
+		rows := []alertRow{{Label: "封禁数量", Value: fmt.Sprint(len(a.Items))}}
+		if a.DryRun {
+			rows = append(rows, alertRow{Label: "模式", Value: "dry_run（仅通知，不封禁）"})
+		}
+		return rows
 	default:
 		var rows []alertRow
 		if a.Rule != "" {
@@ -110,6 +170,9 @@ func (a Alert) rows() []alertRow {
 		}
 		if a.IP != "" {
 			rows = append(rows, alertRow{Label: "来源 IP", Value: a.IP})
+		}
+		if a.Location != "" {
+			rows = append(rows, alertRow{Label: "归属地", Value: a.Location})
 		}
 		if a.Action != "" {
 			rows = append(rows, alertRow{Label: "处置", Value: a.Action})
@@ -122,6 +185,30 @@ func (a Alert) rows() []alertRow {
 		}
 		return rows
 	}
+}
+
+func (a Alert) batchDetailLines() []string {
+	if a.Kind != alertBanBatch {
+		return nil
+	}
+	lines := make([]string, 0, len(a.Items))
+	for _, item := range a.Items {
+		line := fmt.Sprintf("- `%s`", item.IP)
+		if item.Location != "" {
+			line += " · " + item.Location
+		}
+		if item.Rule != "" {
+			line += " · " + item.Rule
+		}
+		if item.Count > 0 {
+			line += fmt.Sprintf(" · %d次", item.Count)
+		}
+		if item.Action != "" {
+			line += " · " + item.Action
+		}
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 func (a Alert) PlainText() string {
@@ -139,6 +226,11 @@ func (a Alert) PlainText() string {
 		if a.Kind == alertAudit && strings.TrimSpace(a.Detail) != "" {
 			b.WriteByte('\n')
 			b.WriteString(a.Detail)
+			b.WriteByte('\n')
+		}
+		if lines := a.batchDetailLines(); len(lines) > 0 {
+			b.WriteByte('\n')
+			b.WriteString(strings.Join(lines, "\n"))
 			b.WriteByte('\n')
 		}
 	}
@@ -168,6 +260,9 @@ func (a Alert) ConsoleText() string {
 				fmt.Fprintf(&b, " %s\n", line)
 			}
 		}
+		for _, line := range a.batchDetailLines() {
+			fmt.Fprintf(&b, " %s\n", line)
+		}
 	}
 	b.WriteString(line)
 	b.WriteByte('\n')
@@ -181,11 +276,16 @@ func (a Alert) EmailSubject() string {
 		return "banhack233 通知测试"
 	case alertAudit:
 		return "banhack233 巡检告警"
+	case alertBanBatch:
+		if a.DryRun {
+			return "banhack233 模拟封禁汇总"
+		}
+		return "banhack233 批量封禁告警"
 	default:
 		if a.DryRun {
 			return "banhack233 模拟封禁告警"
 		}
-		return "banhack233 安全告警"
+		return "banhack233 IP 已封禁"
 	}
 }
 
@@ -205,6 +305,9 @@ func (a Alert) EmailHTML() string {
 		}
 		if a.Kind == alertAudit && strings.TrimSpace(a.Detail) != "" {
 			fmt.Fprintf(&body, `<tr><td style="padding:12px 0;color:#333;white-space:pre-wrap;line-height:1.6;">%s</td></tr>`, html.EscapeString(a.Detail))
+		}
+		if lines := a.batchDetailLines(); len(lines) > 0 {
+			fmt.Fprintf(&body, `<tr><td style="padding:12px 0;color:#333;white-space:pre-wrap;line-height:1.6;">%s</td></tr>`, html.EscapeString(strings.Join(lines, "\n")))
 		}
 	}
 	body.WriteString(`</table>`)
@@ -231,6 +334,9 @@ func (a Alert) JSONPayload() map[string]any {
 	if strings.TrimSpace(a.Detail) != "" {
 		payload["detail"] = a.Detail
 	}
+	if lines := a.batchDetailLines(); len(lines) > 0 {
+		payload["items"] = lines
+	}
 	return payload
 }
 
@@ -240,7 +346,7 @@ func (a Alert) feishuHeaderTemplate() string {
 		return "blue"
 	case alertAudit:
 		return "orange"
-	case alertBan:
+	case alertBan, alertBanBatch:
 		if a.DryRun {
 			return "orange"
 		}
@@ -264,6 +370,9 @@ func (a Alert) feishuMarkdown() string {
 		}
 		if a.Kind == alertAudit && strings.TrimSpace(a.Detail) != "" {
 			lines = append(lines, "", a.Detail)
+		}
+		if batch := a.batchDetailLines(); len(batch) > 0 {
+			lines = append(lines, "", strings.Join(batch, "\n"))
 		}
 	}
 	return strings.Join(lines, "\n")
@@ -340,6 +449,9 @@ func (a Alert) discordEmbed() map[string]any {
 	if a.Kind == alertTest || (a.Kind == alertAudit && strings.TrimSpace(a.Detail) != "") {
 		embed["description"] = a.Detail
 	}
+	if lines := a.batchDetailLines(); len(lines) > 0 {
+		embed["description"] = strings.Join(lines, "\n")
+	}
 	if fields := a.discordFields(); len(fields) > 0 {
 		embed["fields"] = fields
 	}
@@ -377,6 +489,12 @@ func (a Alert) slackBlocks() []map[string]any {
 			blocks = append(blocks, map[string]any{
 				"type": "section",
 				"text": map[string]any{"type": "mrkdwn", "text": a.Detail},
+			})
+		}
+		if lines := a.batchDetailLines(); len(lines) > 0 {
+			blocks = append(blocks, map[string]any{
+				"type": "section",
+				"text": map[string]any{"type": "mrkdwn", "text": strings.Join(lines, "\n")},
 			})
 		}
 	}

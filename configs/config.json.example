@@ -33,6 +33,10 @@
       "disable_challenge_response": true
     }
   },
+  "geoip": {
+    "enabled": true,
+    "db_path": "/var/lib/banhack233/ip2region_v4.xdb"
+  },
   "malware": {
     "enabled": true,
     "direct_kill": false,
@@ -41,6 +45,11 @@
   },
   "notifications": {
     "console": true,
+    "batch": {
+      "enabled": true,
+      "interval": "60s",
+      "max_items": 20
+    },
     "feishu": {
       "enabled": false,
       "url": "https://open.feishu.cn/open-apis/bot/v2/hook/xxx",
