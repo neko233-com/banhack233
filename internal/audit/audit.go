@@ -39,7 +39,7 @@ func Run(cfg config.Config) []Finding {
 
 func auditMalware(cfg config.MalwareConfig) []Finding {
 	var out []Finding
-	opts := malware.Options{Kill: cfg.AutoRemediate, Quarantine: cfg.AutoRemediate}
+	opts := malware.Options{Kill: cfg.DirectKill}
 	for _, f := range malware.Scan(cfg, opts) {
 		if f.Level == "info" {
 			continue

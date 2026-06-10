@@ -57,9 +57,9 @@ English docs: [README-EN.md](README-EN.md)
 8. 多渠道通知：控制台、飞书/Lark、Discord、Slack、通用 webhook、邮箱。
 9. 邮箱 SMTP 自动识别：QQ、163、126、Gmail、Outlook、Hotmail、Live 等。
 10. Linux 恶意程序巡检：挖矿进程、可疑临时目录执行、LD_PRELOAD、cron/systemd 持久化痕迹。
-11. 可选自动处置：显式开启后 kill 可疑进程、复制可疑可执行文件到隔离目录。
+11. 可选自动处置：`direct_kill=true` 后直接 kill 可疑进程。
 12. 开机自启动：Linux systemd、macOS launchd、Windows schtasks。
-13. 安全默认值：`dry_run=true`、`start_at_end=true`、`ignore_ips` 白名单、恶意程序巡检默认不自动 kill。
+13. 安全默认值：`dry_run=true`、`start_at_end=true`、`ignore_ips` 白名单、`direct_kill=false`。
 
 ## 是否能作为杀毒软件
 
@@ -72,7 +72,7 @@ English docs: [README-EN.md](README-EN.md)
 3. 检查 `LD_PRELOAD` 劫持痕迹。
 4. 检查 cron、systemd 中的可疑持久化命令。
 5. 发现后通知。
-6. 显式开启时 kill 可疑进程、隔离可疑可执行文件。
+6. 显式开启时直接 kill 可疑进程。
 
 它不能保证：
 
@@ -209,30 +209,47 @@ banhack233 malware-scan
 
 默认只扫描，不 kill、不移动文件。
 
-显式自动处置：
+手动临时 kill：
 
 ```sh
-sudo banhack233 malware-scan -kill -quarantine
+sudo banhack233 malware-scan -kill
 ```
 
-处置逻辑：
+配置自动清理：
 
-- `-kill`：对可疑进程发送 SIGTERM。
-- `-quarantine`：把可疑可执行文件复制到隔离目录，默认 `/var/lib/banhack233/quarantine`。
+```json
+{
+  "malware": {
+    "direct_kill": true
+  }
+}
+```
 
-配置里也可开启：
+`direct_kill=true` 会让手动 `malware-scan` 和定时 `doctor` 巡检直接 kill 可疑进程。配置只保留这一个清理开关，够傻瓜，也避免半隔离半清理的歧义。
+
+报告：
+
+- 每次 `malware-scan` 都会输出控制台报告，并写报告文件。
+- 文件名格式：`{名字}.yyyy-MM-dd_HH-mm-ss.txt`。
+- 默认名字：`malware-scan`。
+- 自定义名字：`banhack233 malware-scan -name ssh-box-1`。
+- 默认目录：`/var/lib/banhack233/reports`。
+- 默认保留最近 50 份，按最后修改时间 LRU 淘汰。
+
+完整配置：
 
 ```json
 {
   "malware": {
     "enabled": true,
-    "auto_remediate": false,
-    "quarantine_dir": "/var/lib/banhack233/quarantine"
+    "direct_kill": false,
+    "report_dir": "/var/lib/banhack233/reports",
+    "report_keep": 50
   }
 }
 ```
 
-`auto_remediate=true` 会让 `malware-scan` 和定时 `doctor` 巡检默认执行 kill + quarantine。生产环境建议先保持 `false`，观察告警后再手动处置。
+生产环境建议先保持 `direct_kill=false`，观察报告后再开启。
 
 ### 预览 SSH 配置
 
@@ -394,8 +411,9 @@ banhack233 test
   ],
   "malware": {
     "enabled": true,
-    "auto_remediate": false,
-    "quarantine_dir": "/var/lib/banhack233/quarantine"
+    "direct_kill": false,
+    "report_dir": "/var/lib/banhack233/reports",
+    "report_keep": 50
   }
 }
 ```
@@ -416,8 +434,9 @@ banhack233 test
 | `ban_time` | 状态里记录的封禁时长 |
 | `action` | `auto` 或自定义命令 |
 | `malware.enabled` | 是否在 doctor/定时审计中加入恶意程序巡检 |
-| `malware.auto_remediate` | 是否默认 kill + quarantine，可误杀，默认 false |
-| `malware.quarantine_dir` | 隔离目录 |
+| `malware.direct_kill` | 是否自动直接 kill 可疑进程，默认 false |
+| `malware.report_dir` | 报告目录 |
+| `malware.report_keep` | 报告保留数量，超过后按 LRU 淘汰 |
 
 ## 通知策略
 

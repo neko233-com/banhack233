@@ -61,9 +61,9 @@ Password SSH login and root password login are supported use cases. The default 
 8. Notifications: console, Feishu/Lark, Discord, Slack, generic webhook, email.
 9. SMTP auto-detection: QQ, 163, 126, Gmail, Outlook, Hotmail, Live, and others.
 10. Linux malware scan: miner processes, temp-dir execution, LD_PRELOAD, cron/systemd persistence indicators.
-11. Optional remediation: explicitly enabled process kill and suspicious executable quarantine.
+11. Optional remediation: `direct_kill=true` directly kills suspicious processes.
 12. Autostart: Linux systemd, macOS launchd, Windows schtasks.
-13. Safe defaults: `dry_run=true`, `start_at_end=true`, `ignore_ips` whitelist, malware scan does not kill by default.
+13. Safe defaults: `dry_run=true`, `start_at_end=true`, `ignore_ips` whitelist, `direct_kill=false`.
 
 ## Can It Be Antivirus?
 
@@ -76,7 +76,7 @@ It can:
 3. Detect `LD_PRELOAD` hijack traces.
 4. Detect suspicious cron and systemd persistence commands.
 5. Send alerts.
-6. Kill suspicious processes and quarantine suspicious executables only when explicitly enabled.
+6. Directly kill suspicious processes only when explicitly enabled.
 
 It cannot guarantee:
 
@@ -137,7 +137,7 @@ banhack233 test
 banhack233 ban-list
 sudo banhack233 unban 203.0.113.10
 banhack233 malware-scan
-sudo banhack233 malware-scan -kill -quarantine
+sudo banhack233 malware-scan -kill
 banhack233 secure-ssh
 sudo banhack233 secure-ssh -write -force
 sudo banhack233 keepalive -write
@@ -156,16 +156,32 @@ banhack233 malware-scan
 
 Default mode scans only. It does not kill processes or move files.
 
-Explicit remediation:
+Manual one-shot kill:
 
 ```sh
-sudo banhack233 malware-scan -kill -quarantine
+sudo banhack233 malware-scan -kill
 ```
 
-Remediation behavior:
+Automatic cleanup config:
 
-- `-kill`: sends SIGTERM to suspicious processes.
-- `-quarantine`: copies suspicious executables to the quarantine directory, default `/var/lib/banhack233/quarantine`.
+```json
+{
+  "malware": {
+    "direct_kill": true
+  }
+}
+```
+
+`direct_kill=true` makes manual `malware-scan` and scheduled `doctor` checks directly kill suspicious processes. This is the only cleanup switch, keeping behavior simple.
+
+Reports:
+
+- Every `malware-scan` prints a console report and writes a report file.
+- File name format: `{name}.yyyy-MM-dd_HH-mm-ss.txt`.
+- Default name: `malware-scan`.
+- Custom name: `banhack233 malware-scan -name ssh-box-1`.
+- Default directory: `/var/lib/banhack233/reports`.
+- Default retention: latest 50 reports, older files pruned by LRU/mod-time.
 
 Config:
 
@@ -173,13 +189,14 @@ Config:
 {
   "malware": {
     "enabled": true,
-    "auto_remediate": false,
-    "quarantine_dir": "/var/lib/banhack233/quarantine"
+    "direct_kill": false,
+    "report_dir": "/var/lib/banhack233/reports",
+    "report_keep": 50
   }
 }
 ```
 
-`auto_remediate=true` makes `malware-scan` and scheduled `doctor` checks use kill + quarantine by default. Production hosts should keep it `false` first, review alerts, then remediate manually.
+Production hosts should keep `direct_kill=false` first, review reports, then enable it.
 
 ## SSH Baseline
 
@@ -294,8 +311,9 @@ If an application has its own 5-minute idle timeout, fix the application heartbe
   ],
   "malware": {
     "enabled": true,
-    "auto_remediate": false,
-    "quarantine_dir": "/var/lib/banhack233/quarantine"
+    "direct_kill": false,
+    "report_dir": "/var/lib/banhack233/reports",
+    "report_keep": 50
   }
 }
 ```
@@ -312,8 +330,9 @@ Important fields:
 | `ban_time` | Ban duration recorded in state |
 | `action` | `auto` or custom command |
 | `malware.enabled` | Include malware checks in doctor/hourly audit |
-| `malware.auto_remediate` | Kill + quarantine by default; can false-positive; default false |
-| `malware.quarantine_dir` | Quarantine directory |
+| `malware.direct_kill` | Directly kill suspicious processes, default false |
+| `malware.report_dir` | Report directory |
+| `malware.report_keep` | Report retention count; older files pruned by LRU |
 
 ## Notifications
 

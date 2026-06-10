@@ -84,8 +84,8 @@ func run(args []string) error {
 func runMalwareScan(args []string) error {
 	fs := flag.NewFlagSet("banhack233 malware-scan", flag.ContinueOnError)
 	cfgPath := fs.String("config", config.DefaultPath(), "config file")
-	kill := fs.Bool("kill", false, "kill suspicious miner/intrusion processes")
-	quarantine := fs.Bool("quarantine", false, "copy suspicious executable to quarantine directory")
+	kill := fs.Bool("kill", false, "kill suspicious miner/intrusion processes for this manual scan")
+	reportName := fs.String("name", "malware-scan", "report file name prefix")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -93,11 +93,16 @@ func runMalwareScan(args []string) error {
 	if err != nil {
 		return err
 	}
-	if cfg.Malware.AutoRemediate {
+	if cfg.Malware.DirectKill {
 		*kill = true
-		*quarantine = true
 	}
-	fmt.Println(malware.Format(malware.Scan(cfg.Malware, malware.Options{Kill: *kill, Quarantine: *quarantine})))
+	findings := malware.Scan(cfg.Malware, malware.Options{Kill: *kill})
+	fmt.Println(malware.Format(findings))
+	report, err := malware.WriteReport(cfg.Malware, *reportName, findings)
+	if err != nil {
+		return err
+	}
+	fmt.Println("report:", report)
 	return nil
 }
 
@@ -239,7 +244,7 @@ Usage:
   banhack233 run [-config path]              run daemon
   banhack233 test [-config path]             scan once and send configured test notification
   banhack233 doctor [-config path]           audit local security posture
-  banhack233 malware-scan [-kill] [-quarantine] scan linux miners and intrusion indicators
+  banhack233 malware-scan [-kill] [-name prefix] scan linux miners and write report
   banhack233 status [-config path]           show version, config, autostart, audit summary
   banhack233 secure-ssh [-config path]       preview SSH hardening block
   banhack233 secure-ssh -write               apply SSH hardening; requires allowed_users unless -force

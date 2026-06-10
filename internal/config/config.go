@@ -47,9 +47,10 @@ type Hardening struct {
 }
 
 type MalwareConfig struct {
-	Enabled       bool   `json:"enabled"`
-	AutoRemediate bool   `json:"auto_remediate"`
-	QuarantineDir string `json:"quarantine_dir"`
+	Enabled    bool   `json:"enabled"`
+	DirectKill bool   `json:"direct_kill"`
+	ReportDir  string `json:"report_dir"`
+	ReportKeep int    `json:"report_keep"`
 }
 
 type SSHHardening struct {
@@ -153,9 +154,10 @@ func Default() Config {
 			DisableChallengeResponse: true,
 		}},
 		Malware: MalwareConfig{
-			Enabled:       true,
-			AutoRemediate: false,
-			QuarantineDir: defaultQuarantinePath(),
+			Enabled:    true,
+			DirectKill: false,
+			ReportDir:  defaultReportPath(),
+			ReportKeep: 50,
 		},
 		Notifications: NotificationSet{Console: true},
 	}
@@ -192,8 +194,11 @@ func (c *Config) Normalize() error {
 	if strings.TrimSpace(c.StatePath) == "" {
 		c.StatePath = defaultStatePath()
 	}
-	if strings.TrimSpace(c.Malware.QuarantineDir) == "" {
-		c.Malware.QuarantineDir = defaultQuarantinePath()
+	if strings.TrimSpace(c.Malware.ReportDir) == "" {
+		c.Malware.ReportDir = defaultReportPath()
+	}
+	if c.Malware.ReportKeep <= 0 {
+		c.Malware.ReportKeep = 50
 	}
 	for i := range c.Rules {
 		r := &c.Rules[i]
@@ -216,18 +221,18 @@ func (c *Config) Normalize() error {
 	return nil
 }
 
-func defaultQuarantinePath() string {
+func defaultReportPath() string {
 	if runtime.GOOS == "windows" {
 		base := os.Getenv("ProgramData")
 		if base == "" {
 			base = `C:\ProgramData`
 		}
-		return filepath.Join(base, "banhack233", "quarantine")
+		return filepath.Join(base, "banhack233", "reports")
 	}
 	if runtime.GOOS == "darwin" {
-		return "/usr/local/var/banhack233/quarantine"
+		return "/usr/local/var/banhack233/reports"
 	}
-	return "/var/lib/banhack233/quarantine"
+	return "/var/lib/banhack233/reports"
 }
 
 func defaultStatePath() string {

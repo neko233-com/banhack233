@@ -35,8 +35,9 @@
   },
   "malware": {
     "enabled": true,
-    "auto_remediate": false,
-    "quarantine_dir": "/var/lib/banhack233/quarantine"
+    "direct_kill": false,
+    "report_dir": "/var/lib/banhack233/reports",
+    "report_keep": 50
   },
   "notifications": {
     "console": true,
