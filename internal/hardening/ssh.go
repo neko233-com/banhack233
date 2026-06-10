@@ -14,7 +14,7 @@ import (
 
 const sshdConfigPath = "/etc/ssh/sshd_config"
 
-func SecureSSH(cfg config.Config, write bool) (string, error) {
+func SecureSSH(cfg config.Config, write bool, force bool) (string, error) {
 	if runtime.GOOS != "linux" {
 		return "", fmt.Errorf("secure-ssh supports linux only")
 	}
@@ -25,6 +25,9 @@ func SecureSSH(cfg config.Config, write bool) (string, error) {
 	managed := renderSSHDManagedBlock(ssh)
 	if !write {
 		return managed, nil
+	}
+	if len(ssh.AllowedUsers) == 0 && !force {
+		return "", fmt.Errorf("refuse to write SSH hardening without hardening.ssh.allowed_users; set allowed_users or pass -force")
 	}
 	original, err := os.ReadFile(sshdConfigPath)
 	if err != nil {

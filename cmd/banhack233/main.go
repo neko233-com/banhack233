@@ -38,6 +38,8 @@ func run(args []string) error {
 		return runOnce(args[1:])
 	case "doctor", "audit":
 		return runDoctor(args[1:])
+	case "status":
+		return runStatus(args[1:])
 	case "secure-ssh":
 		return runSecureSSH(args[1:])
 	case "ban-list":
@@ -142,10 +144,9 @@ func runDoctor(args []string) error {
 	return nil
 }
 
-func runSecureSSH(args []string) error {
-	fs := flag.NewFlagSet("banhack233 secure-ssh", flag.ContinueOnError)
+func runStatus(args []string) error {
+	fs := flag.NewFlagSet("banhack233 status", flag.ContinueOnError)
 	cfgPath := fs.String("config", config.DefaultPath(), "config file")
-	write := fs.Bool("write", false, "write managed sshd_config block and reload ssh")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -153,7 +154,26 @@ func runSecureSSH(args []string) error {
 	if err != nil {
 		return err
 	}
-	out, err := hardening.SecureSSH(cfg, *write)
+	auto, _ := autostart.Status()
+	fmt.Printf("version=%s\nconfig=%s\ndry_run=%t\nstart_at_end=%t\nstate=%s\nautostart_backend=%s\nautostart_enabled=%t\nautostart_active=%t\nrules=%d\n", version.String(), *cfgPath, cfg.DryRun, cfg.StartAtEnd, cfg.StatePath, auto.Backend, auto.Enabled, auto.Active, len(cfg.Rules))
+	fmt.Println("audit:")
+	fmt.Println(audit.Format(audit.Run(cfg)))
+	return nil
+}
+
+func runSecureSSH(args []string) error {
+	fs := flag.NewFlagSet("banhack233 secure-ssh", flag.ContinueOnError)
+	cfgPath := fs.String("config", config.DefaultPath(), "config file")
+	write := fs.Bool("write", false, "write managed sshd_config block and reload ssh")
+	force := fs.Bool("force", false, "allow writing sshd_config without allowed_users")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		return err
+	}
+	out, err := hardening.SecureSSH(cfg, *write, *force)
 	if err != nil {
 		return err
 	}
@@ -178,8 +198,9 @@ Usage:
   banhack233 run [-config path]              run daemon
   banhack233 test [-config path]             scan once and send configured test notification
   banhack233 doctor [-config path]           audit local security posture
+  banhack233 status [-config path]           show version, config, autostart, audit summary
   banhack233 secure-ssh [-config path]       preview SSH hardening block
-  banhack233 secure-ssh -write               apply SSH hardening after backup + sshd -t
+  banhack233 secure-ssh -write               apply SSH hardening; requires allowed_users unless -force
   banhack233 ban-list                        list active ban backend entries
   banhack233 unban <ip>                      remove a blocked IP
   banhack233 install-autostart [-config path] install systemd or Windows startup task
