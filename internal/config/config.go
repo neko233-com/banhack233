@@ -33,9 +33,12 @@ type Rule struct {
 }
 
 type NotificationSet struct {
-	Feishu  WebhookConfig `json:"feishu"`
-	Email   EmailConfig   `json:"email"`
-	Console bool          `json:"console"`
+	Feishu   WebhookConfig   `json:"feishu"`
+	Discord  WebhookConfig   `json:"discord"`
+	Slack    WebhookConfig   `json:"slack"`
+	Webhooks []WebhookTarget `json:"webhooks"`
+	Email    EmailConfig     `json:"email"`
+	Console  bool            `json:"console"`
 }
 
 type Hardening struct {
@@ -58,6 +61,14 @@ type SSHHardening struct {
 type WebhookConfig struct {
 	Enabled bool   `json:"enabled"`
 	URL     string `json:"url"`
+}
+
+type WebhookTarget struct {
+	Name    string            `json:"name"`
+	Enabled bool              `json:"enabled"`
+	URL     string            `json:"url"`
+	Format  string            `json:"format"`
+	Headers map[string]string `json:"headers"`
 }
 
 type EmailConfig struct {

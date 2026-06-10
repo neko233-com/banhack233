@@ -39,6 +39,25 @@
       "enabled": false,
       "url": "https://open.feishu.cn/open-apis/bot/v2/hook/xxx"
     },
+    "discord": {
+      "enabled": false,
+      "url": "https://discord.com/api/webhooks/xxx/yyy"
+    },
+    "slack": {
+      "enabled": false,
+      "url": "https://hooks.slack.com/services/xxx/yyy/zzz"
+    },
+    "webhooks": [
+      {
+        "name": "custom-json",
+        "enabled": false,
+        "url": "https://example.com/webhook",
+        "format": "json",
+        "headers": {
+          "Authorization": "Bearer token"
+        }
+      }
+    ],
     "email": {
       "enabled": false,
       "from": "alert@qq.com",

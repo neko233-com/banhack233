@@ -31,11 +31,13 @@ banhack233 status
 - 支持 root 密码登录场景。
 - 支持 SSH 长时间不断线，目标至少 24 小时。
 - 支持 TCP 业务长连接保活，避免系统/NAT/conntrack 过早清理连接。
-- 支持飞书 webhook 和邮箱通知。
+- 支持飞书、Discord、Slack、通用 webhook 和邮箱通知。
 - 支持开机自启动。
 - 支持 Linux、macOS、Windows。
 
 它不是只做 fail2ban，也不是逐项复制 fail2ban。它是几个常用主机安全能力的集合体：fail2ban 风格日志扫描与封禁、sshguard 风格 SSH 爆破防护、系统安全巡检、SSH/TCP 保活、通知告警、自启动部署。
+
+English docs: [README-EN.md](README-EN.md)
 
 ## 支持平台
 
@@ -311,6 +313,21 @@ banhack233 test
 | `ban_time` | 状态里记录的封禁时长 |
 | `action` | `auto` 或自定义命令 |
 
+## 通知策略
+
+支持这些通知：
+
+| 渠道 | 配置字段 | 说明 |
+| --- | --- | --- |
+| 控制台 | `console` | 输出到 stdout / systemd journal |
+| 飞书 / Lark | `feishu` | 飞书机器人 text 消息 |
+| Discord | `discord` | Discord webhook `content` 消息 |
+| Slack | `slack` | Slack incoming webhook `text` 消息 |
+| 通用 webhook | `webhooks[]` | 支持 `text`、`json`、`discord`、`slack`、`feishu` 格式 |
+| 邮箱 | `email` | SMTP，支持常见邮箱自动识别 |
+
+`webhooks[]` 适合接企业内部通知网关、告警平台、OpenClaw 类聚合通知服务。
+
 ## 飞书通知
 
 配置：
@@ -334,6 +351,72 @@ banhack233 test
 ```
 
 当触发规则或审计有发现时，会发送飞书消息。
+
+## Discord 通知
+
+配置：
+
+```json
+{
+  "notifications": {
+    "discord": {
+      "enabled": true,
+      "url": "https://discord.com/api/webhooks/xxx/yyy"
+    }
+  }
+}
+```
+
+Discord 使用 `{"content":"..."}` payload。
+
+## Slack 通知
+
+配置：
+
+```json
+{
+  "notifications": {
+    "slack": {
+      "enabled": true,
+      "url": "https://hooks.slack.com/services/xxx/yyy/zzz"
+    }
+  }
+}
+```
+
+Slack 使用 `{"text":"..."}` payload。
+
+## 通用 webhook 通知
+
+配置：
+
+```json
+{
+  "notifications": {
+    "webhooks": [
+      {
+        "name": "internal-alert",
+        "enabled": true,
+        "url": "https://example.com/webhook",
+        "format": "json",
+        "headers": {
+          "Authorization": "Bearer token"
+        }
+      }
+    ]
+  }
+}
+```
+
+`format` 支持：
+
+| format | payload |
+| --- | --- |
+| `text` | 纯文本 |
+| `json` | `{"text":"..."}` |
+| `discord` | `{"content":"..."}` |
+| `slack` | `{"text":"..."}` |
+| `feishu` / `lark` | `{"msg_type":"text","content":{"text":"..."}}` |
 
 ## 邮箱通知
 

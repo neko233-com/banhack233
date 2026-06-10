@@ -27,10 +27,22 @@ func Run(cfg config.Config) []Finding {
 	if cfg.DryRun {
 		findings = append(findings, Finding{Level: "info", Message: "dry_run=true, firewall bans only notify", Fix: "Set dry_run=false after test."})
 	}
-	if !cfg.Notifications.Console && !cfg.Notifications.Feishu.Enabled && !cfg.Notifications.Email.Enabled {
-		findings = append(findings, Finding{Level: "warn", Message: "no notification channel enabled", Fix: "Enable feishu or email."})
+	if !hasNotification(cfg.Notifications) {
+		findings = append(findings, Finding{Level: "warn", Message: "no notification channel enabled", Fix: "Enable feishu, discord, slack, webhook, or email."})
 	}
 	return findings
+}
+
+func hasNotification(cfg config.NotificationSet) bool {
+	if cfg.Console || cfg.Feishu.Enabled || cfg.Discord.Enabled || cfg.Slack.Enabled || cfg.Email.Enabled {
+		return true
+	}
+	for _, target := range cfg.Webhooks {
+		if target.Enabled {
+			return true
+		}
+	}
+	return false
 }
 
 func auditLinuxSSH(cfg config.Config) []Finding {
