@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/neko233-com/banhack233/internal/config"
+	"github.com/neko233-com/banhack233/internal/malware"
 )
 
 type Finding struct {
@@ -23,6 +24,9 @@ func Run(cfg config.Config) []Finding {
 		findings = append(findings, auditLinuxSSH(cfg)...)
 		findings = append(findings, auditLinuxFirewall()...)
 		findings = append(findings, auditLinuxUpdates()...)
+		if cfg.Malware.Enabled {
+			findings = append(findings, auditMalware(cfg.Malware)...)
+		}
 	}
 	if cfg.DryRun {
 		findings = append(findings, Finding{Level: "info", Message: "dry_run=true, firewall bans only notify", Fix: "Set dry_run=false after test."})
@@ -31,6 +35,18 @@ func Run(cfg config.Config) []Finding {
 		findings = append(findings, Finding{Level: "warn", Message: "no notification channel enabled", Fix: "Enable feishu, discord, slack, webhook, or email."})
 	}
 	return findings
+}
+
+func auditMalware(cfg config.MalwareConfig) []Finding {
+	var out []Finding
+	opts := malware.Options{Kill: cfg.AutoRemediate, Quarantine: cfg.AutoRemediate}
+	for _, f := range malware.Scan(cfg, opts) {
+		if f.Level == "info" {
+			continue
+		}
+		out = append(out, Finding{Level: f.Level, Message: fmt.Sprintf("malware indicator: %s %s", f.Type, f.Target), Fix: f.Detail})
+	}
+	return out
 }
 
 func hasNotification(cfg config.NotificationSet) bool {

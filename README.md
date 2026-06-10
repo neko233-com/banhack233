@@ -42,7 +42,8 @@ English docs: [README-EN.md](README-EN.md)
 2. `sshguard`：SSH 暴力破解防护。
 3. `denyhosts`：登录失败来源识别与阻断思路。
 4. `crowdsec`：安全事件检测、封禁、告警生态。
-5. `ufw` / `nftables` / `iptables` / Windows 防火墙：实际封禁后端。
+5. `ClamAV` / `rkhunter` / `chkrootkit`：Linux 恶意文件、rootkit、入侵痕迹检查思路。
+6. `ufw` / `nftables` / `iptables` / Windows 防火墙：实际封禁后端。
 
 ## 功能
 
@@ -55,8 +56,32 @@ English docs: [README-EN.md](README-EN.md)
 7. TCP 系统保活高级项：必须显式 `-tcp` 才会写全局 TCP keepalive/conntrack 参数。
 8. 多渠道通知：控制台、飞书/Lark、Discord、Slack、通用 webhook、邮箱。
 9. 邮箱 SMTP 自动识别：QQ、163、126、Gmail、Outlook、Hotmail、Live 等。
-10. 开机自启动：Linux systemd、macOS launchd、Windows schtasks。
-11. 安全默认值：`dry_run=true`、`start_at_end=true`、`ignore_ips` 白名单。
+10. Linux 恶意程序巡检：挖矿进程、可疑临时目录执行、LD_PRELOAD、cron/systemd 持久化痕迹。
+11. 可选自动处置：显式开启后 kill 可疑进程、复制可疑可执行文件到隔离目录。
+12. 开机自启动：Linux systemd、macOS launchd、Windows schtasks。
+13. 安全默认值：`dry_run=true`、`start_at_end=true`、`ignore_ips` 白名单、恶意程序巡检默认不自动 kill。
+
+## 是否能作为杀毒软件
+
+可以作为轻量 Linux 主机杀毒/入侵排查辅助，但不是完整商业杀毒或 EDR。
+
+它能做：
+
+1. 检查常见挖矿程序特征：`xmrig`、`kdevtmpfsi`、`kinsing`、`watchbog`、`stratum+tcp` 等。
+2. 检查可疑临时目录执行：`/tmp`、`/var/tmp`、`/dev/shm`、`/run/user`。
+3. 检查 `LD_PRELOAD` 劫持痕迹。
+4. 检查 cron、systemd 中的可疑持久化命令。
+5. 发现后通知。
+6. 显式开启时 kill 可疑进程、隔离可疑可执行文件。
+
+它不能保证：
+
+1. 覆盖所有病毒样本。
+2. 替代 ClamAV/YARA/商业 EDR。
+3. 修复所有 rootkit 或内核级后门。
+4. 对业务进程做 100% 无误报判断。
+
+因此默认只扫描和通知。自动处置必须显式开启。
 
 ## 支持平台
 
@@ -113,19 +138,25 @@ banhack233 status
 banhack233 doctor
 ```
 
-4. 开启 SSH 24 小时保活：
+4. 扫描 Linux 恶意程序/挖矿程序：
+
+```sh
+banhack233 malware-scan
+```
+
+5. 开启 SSH 24 小时保活：
 
 ```sh
 sudo banhack233 keepalive -write
 ```
 
-5. 开启开机自启动：
+6. 开启开机自启动：
 
 ```sh
 sudo banhack233 install-autostart
 ```
 
-6. 观察一段时间后开启真实封禁：
+7. 观察一段时间后开启真实封禁：
 
 ```sh
 sudo sed -i 's/"dry_run": true/"dry_run": false/' /etc/banhack233/config.json
@@ -169,6 +200,39 @@ banhack233 doctor
 - 通知渠道是否开启。
 
 不会把 Redis、MySQL、自研 TCP 服务等业务端口当默认问题。业务软件由业务自己决定是否公开。
+
+### 恶意程序 / 挖矿程序扫描
+
+```sh
+banhack233 malware-scan
+```
+
+默认只扫描，不 kill、不移动文件。
+
+显式自动处置：
+
+```sh
+sudo banhack233 malware-scan -kill -quarantine
+```
+
+处置逻辑：
+
+- `-kill`：对可疑进程发送 SIGTERM。
+- `-quarantine`：把可疑可执行文件复制到隔离目录，默认 `/var/lib/banhack233/quarantine`。
+
+配置里也可开启：
+
+```json
+{
+  "malware": {
+    "enabled": true,
+    "auto_remediate": false,
+    "quarantine_dir": "/var/lib/banhack233/quarantine"
+  }
+}
+```
+
+`auto_remediate=true` 会让 `malware-scan` 和定时 `doctor` 巡检默认执行 kill + quarantine。生产环境建议先保持 `false`，观察告警后再手动处置。
 
 ### 预览 SSH 配置
 
@@ -327,7 +391,12 @@ banhack233 test
       "ban_time": "1h",
       "action": "auto"
     }
-  ]
+  ],
+  "malware": {
+    "enabled": true,
+    "auto_remediate": false,
+    "quarantine_dir": "/var/lib/banhack233/quarantine"
+  }
 }
 ```
 
@@ -346,6 +415,9 @@ banhack233 test
 | `find_time` | 检测时间窗口 |
 | `ban_time` | 状态里记录的封禁时长 |
 | `action` | `auto` 或自定义命令 |
+| `malware.enabled` | 是否在 doctor/定时审计中加入恶意程序巡检 |
+| `malware.auto_remediate` | 是否默认 kill + quarantine，可误杀，默认 false |
+| `malware.quarantine_dir` | 隔离目录 |
 
 ## 通知策略
 

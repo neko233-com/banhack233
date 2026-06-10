@@ -15,6 +15,7 @@ import (
 	"github.com/neko233-com/banhack233/internal/config"
 	"github.com/neko233-com/banhack233/internal/daemon"
 	"github.com/neko233-com/banhack233/internal/hardening"
+	"github.com/neko233-com/banhack233/internal/malware"
 	"github.com/neko233-com/banhack233/internal/version"
 )
 
@@ -38,6 +39,8 @@ func run(args []string) error {
 		return runOnce(args[1:])
 	case "doctor", "audit":
 		return runDoctor(args[1:])
+	case "malware-scan":
+		return runMalwareScan(args[1:])
 	case "status":
 		return runStatus(args[1:])
 	case "secure-ssh":
@@ -76,6 +79,26 @@ func run(args []string) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runMalwareScan(args []string) error {
+	fs := flag.NewFlagSet("banhack233 malware-scan", flag.ContinueOnError)
+	cfgPath := fs.String("config", config.DefaultPath(), "config file")
+	kill := fs.Bool("kill", false, "kill suspicious miner/intrusion processes")
+	quarantine := fs.Bool("quarantine", false, "copy suspicious executable to quarantine directory")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		return err
+	}
+	if cfg.Malware.AutoRemediate {
+		*kill = true
+		*quarantine = true
+	}
+	fmt.Println(malware.Format(malware.Scan(cfg.Malware, malware.Options{Kill: *kill, Quarantine: *quarantine})))
+	return nil
 }
 
 func runInitConfig(args []string) error {
@@ -216,6 +239,7 @@ Usage:
   banhack233 run [-config path]              run daemon
   banhack233 test [-config path]             scan once and send configured test notification
   banhack233 doctor [-config path]           audit local security posture
+  banhack233 malware-scan [-kill] [-quarantine] scan linux miners and intrusion indicators
   banhack233 status [-config path]           show version, config, autostart, audit summary
   banhack233 secure-ssh [-config path]       preview SSH hardening block
   banhack233 secure-ssh -write               apply SSH hardening; requires allowed_users unless -force

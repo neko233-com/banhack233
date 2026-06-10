@@ -8,6 +8,7 @@ caveman full. 精简、专业但完整的答复
 - README-EN.md 为英文文档，也必须把一行安装放在最头部区域，并与中文 README 的核心功能同步。
 - README.md 需要覆盖：功能说明、命令演示、配置示例、飞书/邮箱通知、SSH root 密码登录、24h SSH 保活、TCP 业务长连接 keepalive、dry_run 到生产切换、排障、开发/发布。
 - 通知文档必须覆盖 Feishu/Lark、Discord、Slack、通用 webhook、邮箱；不要把真实 webhook/token 写进仓库。
+- 恶意程序/挖矿扫描文档必须说明：这是轻量 Linux 主机杀毒/入侵排查辅助，不是完整商业杀毒或 EDR；默认只扫描和通知，自动 kill/quarantine 必须显式开启。
 - 不要把业务软件端口（Redis/MySQL 等）当默认问题写进文档；本项目只管主机、SSH、防爆破、通知、系统连接保活。
 - root SSH 登录是受支持场景，不要写成必须禁止 root。
 - 文档描述 TCP 长连接时用“业务 TCP 长连接/自研 TCP 服务/客户端”，不要特指游戏。

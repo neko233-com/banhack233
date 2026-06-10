@@ -33,6 +33,11 @@
       "disable_challenge_response": true
     }
   },
+  "malware": {
+    "enabled": true,
+    "auto_remediate": false,
+    "quarantine_dir": "/var/lib/banhack233/quarantine"
+  },
   "notifications": {
     "console": true,
     "feishu": {

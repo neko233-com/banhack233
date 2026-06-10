@@ -19,6 +19,7 @@ type Config struct {
 	IgnoreIPs     []string        `json:"ignore_ips"`
 	Rules         []Rule          `json:"rules"`
 	Hardening     Hardening       `json:"hardening"`
+	Malware       MalwareConfig   `json:"malware"`
 	Notifications NotificationSet `json:"notifications"`
 }
 
@@ -43,6 +44,12 @@ type NotificationSet struct {
 
 type Hardening struct {
 	SSH SSHHardening `json:"ssh"`
+}
+
+type MalwareConfig struct {
+	Enabled       bool   `json:"enabled"`
+	AutoRemediate bool   `json:"auto_remediate"`
+	QuarantineDir string `json:"quarantine_dir"`
 }
 
 type SSHHardening struct {
@@ -145,6 +152,11 @@ func Default() Config {
 			DisableEmptyPasswords:    true,
 			DisableChallengeResponse: true,
 		}},
+		Malware: MalwareConfig{
+			Enabled:       true,
+			AutoRemediate: false,
+			QuarantineDir: defaultQuarantinePath(),
+		},
 		Notifications: NotificationSet{Console: true},
 	}
 }
@@ -180,6 +192,9 @@ func (c *Config) Normalize() error {
 	if strings.TrimSpace(c.StatePath) == "" {
 		c.StatePath = defaultStatePath()
 	}
+	if strings.TrimSpace(c.Malware.QuarantineDir) == "" {
+		c.Malware.QuarantineDir = defaultQuarantinePath()
+	}
 	for i := range c.Rules {
 		r := &c.Rules[i]
 		if r.Name == "" {
@@ -199,6 +214,20 @@ func (c *Config) Normalize() error {
 		}
 	}
 	return nil
+}
+
+func defaultQuarantinePath() string {
+	if runtime.GOOS == "windows" {
+		base := os.Getenv("ProgramData")
+		if base == "" {
+			base = `C:\ProgramData`
+		}
+		return filepath.Join(base, "banhack233", "quarantine")
+	}
+	if runtime.GOOS == "darwin" {
+		return "/usr/local/var/banhack233/quarantine"
+	}
+	return "/var/lib/banhack233/quarantine"
 }
 
 func defaultStatePath() string {

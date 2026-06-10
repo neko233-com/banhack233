@@ -46,7 +46,8 @@ Password SSH login and root password login are supported use cases. The default 
 2. `sshguard`: SSH brute-force protection.
 3. `denyhosts`: failed login source detection and blocking ideas.
 4. `crowdsec`: security event detection, remediation, and alert ecosystem.
-5. `ufw` / `nftables` / `iptables` / Windows Firewall: actual ban backends.
+5. `ClamAV` / `rkhunter` / `chkrootkit`: Linux malicious file, rootkit, and compromise indicator checks.
+6. `ufw` / `nftables` / `iptables` / Windows Firewall: actual ban backends.
 
 ## Features
 
@@ -59,8 +60,32 @@ Password SSH login and root password login are supported use cases. The default 
 7. TCP keepalive advanced mode: global TCP keepalive/conntrack settings require explicit `-tcp`.
 8. Notifications: console, Feishu/Lark, Discord, Slack, generic webhook, email.
 9. SMTP auto-detection: QQ, 163, 126, Gmail, Outlook, Hotmail, Live, and others.
-10. Autostart: Linux systemd, macOS launchd, Windows schtasks.
-11. Safe defaults: `dry_run=true`, `start_at_end=true`, `ignore_ips` whitelist.
+10. Linux malware scan: miner processes, temp-dir execution, LD_PRELOAD, cron/systemd persistence indicators.
+11. Optional remediation: explicitly enabled process kill and suspicious executable quarantine.
+12. Autostart: Linux systemd, macOS launchd, Windows schtasks.
+13. Safe defaults: `dry_run=true`, `start_at_end=true`, `ignore_ips` whitelist, malware scan does not kill by default.
+
+## Can It Be Antivirus?
+
+It can be a lightweight Linux host antivirus and intrusion-triage helper, but it is not a full commercial antivirus or EDR.
+
+It can:
+
+1. Detect common miner indicators: `xmrig`, `kdevtmpfsi`, `kinsing`, `watchbog`, `stratum+tcp`, and similar.
+2. Detect suspicious execution from `/tmp`, `/var/tmp`, `/dev/shm`, `/run/user`.
+3. Detect `LD_PRELOAD` hijack traces.
+4. Detect suspicious cron and systemd persistence commands.
+5. Send alerts.
+6. Kill suspicious processes and quarantine suspicious executables only when explicitly enabled.
+
+It cannot guarantee:
+
+1. Coverage of all malware samples.
+2. Replacement for ClamAV/YARA/commercial EDR.
+3. Repair of every rootkit or kernel-level backdoor.
+4. Zero false positives on business processes.
+
+So default behavior is scan and alert only. Remediation must be explicitly enabled.
 
 ## Supported Platforms
 
@@ -111,6 +136,8 @@ banhack233 doctor
 banhack233 test
 banhack233 ban-list
 sudo banhack233 unban 203.0.113.10
+banhack233 malware-scan
+sudo banhack233 malware-scan -kill -quarantine
 banhack233 secure-ssh
 sudo banhack233 secure-ssh -write -force
 sudo banhack233 keepalive -write
@@ -120,6 +147,39 @@ sudo banhack233 install-autostart
 `doctor` checks SSH policy, root login policy, empty password setting, retry limit, login grace time, firewall backend, reboot requirement, dry-run status, and notification channels.
 
 It does not treat Redis, MySQL, custom TCP services, or other business ports as default security issues. Business exposure is a business decision.
+
+## Malware / Miner Scan
+
+```sh
+banhack233 malware-scan
+```
+
+Default mode scans only. It does not kill processes or move files.
+
+Explicit remediation:
+
+```sh
+sudo banhack233 malware-scan -kill -quarantine
+```
+
+Remediation behavior:
+
+- `-kill`: sends SIGTERM to suspicious processes.
+- `-quarantine`: copies suspicious executables to the quarantine directory, default `/var/lib/banhack233/quarantine`.
+
+Config:
+
+```json
+{
+  "malware": {
+    "enabled": true,
+    "auto_remediate": false,
+    "quarantine_dir": "/var/lib/banhack233/quarantine"
+  }
+}
+```
+
+`auto_remediate=true` makes `malware-scan` and scheduled `doctor` checks use kill + quarantine by default. Production hosts should keep it `false` first, review alerts, then remediate manually.
 
 ## SSH Baseline
 
@@ -231,7 +291,12 @@ If an application has its own 5-minute idle timeout, fix the application heartbe
       "ban_time": "1h",
       "action": "auto"
     }
-  ]
+  ],
+  "malware": {
+    "enabled": true,
+    "auto_remediate": false,
+    "quarantine_dir": "/var/lib/banhack233/quarantine"
+  }
 }
 ```
 
@@ -246,6 +311,9 @@ Important fields:
 | `find_time` | Detection window |
 | `ban_time` | Ban duration recorded in state |
 | `action` | `auto` or custom command |
+| `malware.enabled` | Include malware checks in doctor/hourly audit |
+| `malware.auto_remediate` | Kill + quarantine by default; can false-positive; default false |
+| `malware.quarantine_dir` | Quarantine directory |
 
 ## Notifications
 
