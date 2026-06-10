@@ -28,6 +28,7 @@ LoginGraceTime 30s
 net.ipv4.tcp_keepalive_time = 60
 net.ipv4.tcp_keepalive_intvl = 30
 net.ipv4.tcp_keepalive_probes = 10
+net.netfilter.nf_conntrack_tcp_timeout_established = 432000
 `
 	if !write {
 		return "/etc/ssh/sshd_config.d/99-banhack233-keepalive.conf\n" + sshBlock + "\n/etc/sysctl.d/99-banhack233-keepalive.conf\n" + sysctlBlock, nil
@@ -49,5 +50,5 @@ net.ipv4.tcp_keepalive_probes = 10
 	}
 	_ = exec.Command("systemctl", "reload", "ssh").Run()
 	_ = exec.Command("systemctl", "reload", "sshd").Run()
-	return "keepalive applied: ssh=24h tcp_keepalive_time=60s tcp_keepalive_intvl=30s tcp_keepalive_probes=10", nil
+	return "keepalive applied: ssh=24h tcp_keepalive_time=60s tcp_keepalive_intvl=30s tcp_keepalive_probes=10 conntrack_established=5d", nil
 }
