@@ -22,27 +22,31 @@ type alertRow struct {
 }
 
 type banBatchItem struct {
-	Rule     string
-	IP       string
-	Location string
-	Action   string
-	Count    int
-	When     time.Time
-	DryRun   bool
+	Rule        string
+	IP          string
+	Location    string
+	Action      string
+	Count       int
+	BanDuration time.Duration
+	When        time.Time
+	DryRun      bool
 }
 
 type Alert struct {
-	Kind   alertKind
-	Title  string
-	Rule   string
-	IP     string
-	Location string
-	Action string
-	Count  int
-	DryRun bool
-	When   time.Time
-	Detail string
-	Items  []banBatchItem
+	Kind             alertKind
+	Title            string
+	Rule             string
+	IP               string
+	Location         string
+	LocationCN       string
+	Action           string
+	Count            int
+	BanDuration      time.Duration
+	DryRun           bool
+	When             time.Time
+	Detail           string
+	Items            []banBatchItem
+	LocationLanguage string
 }
 
 func alertFromEvent(ev Event) Alert {
@@ -62,15 +66,17 @@ func alertFromEvent(ev Event) Alert {
 		}
 	}
 	return Alert{
-		Kind:     alertBan,
-		Title:    banTitle(ev.DryRun, 1),
-		Rule:     ev.Rule,
-		IP:       ev.IP,
-		Location: ev.Location,
-		Action:   ev.Action,
-		Count:    ev.Count,
-		DryRun:   ev.DryRun,
-		When:     when,
+		Kind:        alertBan,
+		Title:       banTitle(ev.DryRun, 1),
+		Rule:        ev.Rule,
+		IP:          ev.IP,
+		Location:    ev.Location,
+		LocationCN:  translateLocationCN(ev.Location),
+		Action:      ev.Action,
+		Count:       ev.Count,
+		BanDuration: ev.BanDuration,
+		DryRun:      ev.DryRun,
+		When:        when,
 	}
 }
 
@@ -86,13 +92,14 @@ func alertFromBanBatch(items []Event) Alert {
 	batch := make([]banBatchItem, 0, len(items))
 	for _, item := range items {
 		batch = append(batch, banBatchItem{
-			Rule:     item.Rule,
-			IP:       item.IP,
-			Location: item.Location,
-			Action:   item.Action,
-			Count:    item.Count,
-			When:     item.When,
-			DryRun:   item.DryRun,
+			Rule:        item.Rule,
+			IP:          item.IP,
+			Location:    item.Location,
+			Action:      item.Action,
+			Count:       item.Count,
+			BanDuration: item.BanDuration,
+			When:        item.When,
+			DryRun:      item.DryRun,
 		})
 		if item.DryRun {
 			dryRun = true
@@ -108,6 +115,20 @@ func alertFromBanBatch(items []Event) Alert {
 	}
 }
 
+func (a Alert) WithLocationLanguage(language string) Alert {
+	language = strings.ToLower(strings.TrimSpace(language))
+	if language == "" && a.Kind == alertBan {
+		return a
+	}
+	a.LocationLanguage = language
+	if language == "zh" || language == "cn" || language == "zh-cn" || language == "chinese" {
+		if a.LocationCN == "" {
+			a.LocationCN = translateLocationCN(a.Location)
+		}
+	}
+	return a
+}
+
 func banTitle(dryRun bool, count int) string {
 	if dryRun {
 		return "banhack233 模拟封禁"
@@ -116,6 +137,107 @@ func banTitle(dryRun bool, count int) string {
 		return "banhack233 批量封禁"
 	}
 	return "banhack233 IP 已封禁"
+}
+
+func wantsChineseLocation(language string) bool {
+	language = strings.ToLower(strings.TrimSpace(language))
+	return language == "zh" || language == "cn" || language == "zh-cn" || language == "chinese"
+}
+
+func banReason(rule string, count int) string {
+	if strings.Contains(strings.ToLower(rule), "ssh") {
+		return fmt.Sprintf("尝试 SSH 密码登录达到最大 %d 次", count)
+	}
+	if strings.TrimSpace(rule) == "" {
+		return fmt.Sprintf("达到最大 %d 次", count)
+	}
+	return fmt.Sprintf("%s 达到最大 %d 次", rule, count)
+}
+
+func humanDuration(d time.Duration) string {
+	if d <= 0 {
+		return ""
+	}
+	if d%time.Hour == 0 {
+		hours := int(d / time.Hour)
+		if hours%24 == 0 {
+			days := hours / 24
+			return fmt.Sprintf("%d 天", days)
+		}
+		return fmt.Sprintf("%d 小时", hours)
+	}
+	if d%time.Minute == 0 {
+		return fmt.Sprintf("%d 分钟", int(d/time.Minute))
+	}
+	return d.String()
+}
+
+func translateLocationCN(location string) string {
+	location = strings.TrimSpace(location)
+	if location == "" {
+		return ""
+	}
+	parts := strings.Split(location, ",")
+	out := make([]string, 0, len(parts))
+	changed := false
+	for _, part := range parts {
+		raw := strings.TrimSpace(part)
+		translated, ok := locationCNMap[strings.ToLower(raw)]
+		if ok {
+			out = append(out, translated)
+			changed = true
+			continue
+		}
+		out = append(out, raw)
+	}
+	if !changed {
+		return location
+	}
+	return strings.Join(out, ", ")
+}
+
+var locationCNMap = map[string]string{
+	"united states":  "美国",
+	"china":          "中国",
+	"netherlands":    "荷兰",
+	"germany":        "德国",
+	"france":         "法国",
+	"united kingdom": "英国",
+	"russia":         "俄罗斯",
+	"japan":          "日本",
+	"korea":          "韩国",
+	"south korea":    "韩国",
+	"singapore":      "新加坡",
+	"brazil":         "巴西",
+	"india":          "印度",
+	"canada":         "加拿大",
+	"australia":      "澳大利亚",
+	"italy":          "意大利",
+	"spain":          "西班牙",
+	"poland":         "波兰",
+	"turkey":         "土耳其",
+	"vietnam":        "越南",
+	"thailand":       "泰国",
+	"indonesia":      "印度尼西亚",
+	"malaysia":       "马来西亚",
+	"philippines":    "菲律宾",
+	"hong kong":      "中国香港",
+	"taiwan":         "中国台湾",
+	"south holland":  "南荷兰省",
+	"rotterdam":      "鹿特丹",
+	"arizona":        "亚利桑那州",
+	"california":     "加利福尼亚州",
+	"new york":       "纽约州",
+	"texas":          "得克萨斯州",
+	"washington":     "华盛顿州",
+	"oregon":         "俄勒冈州",
+	"virginia":       "弗吉尼亚州",
+	"amsterdam":      "阿姆斯特丹",
+	"london":         "伦敦",
+	"paris":          "巴黎",
+	"tokyo":          "东京",
+	"seoul":          "首尔",
+	"moscow":         "莫斯科",
 }
 
 func alertFromTest(message string) Alert {
@@ -174,11 +296,17 @@ func (a Alert) rows() []alertRow {
 		if a.Location != "" {
 			rows = append(rows, alertRow{Label: "归属地", Value: a.Location})
 		}
+		if a.LocationCN != "" && wantsChineseLocation(a.LocationLanguage) && a.LocationCN != a.Location {
+			rows = append(rows, alertRow{Label: "归属地中文", Value: a.LocationCN})
+		}
 		if a.Action != "" {
-			rows = append(rows, alertRow{Label: "处置", Value: a.Action})
+			rows = append(rows, alertRow{Label: "处理方式", Value: a.Action})
 		}
 		if a.Count > 0 {
-			rows = append(rows, alertRow{Label: "触发次数", Value: fmt.Sprint(a.Count)})
+			rows = append(rows, alertRow{Label: "封禁原因", Value: banReason(a.Rule, a.Count)})
+		}
+		if a.BanDuration > 0 {
+			rows = append(rows, alertRow{Label: "封禁持续时间", Value: humanDuration(a.BanDuration)})
 		}
 		if a.DryRun {
 			rows = append(rows, alertRow{Label: "模式", Value: "dry_run（仅通知，不封禁）"})
@@ -196,15 +324,21 @@ func (a Alert) batchDetailLines() []string {
 		line := fmt.Sprintf("- `%s`", item.IP)
 		if item.Location != "" {
 			line += " · " + item.Location
+			if cn := translateLocationCN(item.Location); wantsChineseLocation(a.LocationLanguage) && cn != "" && cn != item.Location {
+				line += " · " + cn
+			}
 		}
 		if item.Rule != "" {
 			line += " · " + item.Rule
 		}
 		if item.Count > 0 {
-			line += fmt.Sprintf(" · %d次", item.Count)
+			line += " · " + banReason(item.Rule, item.Count)
+		}
+		if item.BanDuration > 0 {
+			line += " · " + humanDuration(item.BanDuration)
 		}
 		if item.Action != "" {
-			line += " · " + item.Action
+			line += " · 处理方式:" + item.Action
 		}
 		lines = append(lines, line)
 	}
@@ -440,11 +574,11 @@ func (a Alert) discordFields() []map[string]any {
 
 func (a Alert) discordEmbed() map[string]any {
 	embed := map[string]any{
-		"title":       a.Title,
-		"color":       a.discordColor(),
-		"timestamp":   a.When.UTC().Format(time.RFC3339),
-		"author":      map[string]any{"name": "banhack233"},
-		"footer":      map[string]any{"text": a.When.Format("2006-01-02 15:04:05 MST")},
+		"title":     a.Title,
+		"color":     a.discordColor(),
+		"timestamp": a.When.UTC().Format(time.RFC3339),
+		"author":    map[string]any{"name": "banhack233"},
+		"footer":    map[string]any{"text": a.When.Format("2006-01-02 15:04:05 MST")},
 	}
 	if a.Kind == alertTest || (a.Kind == alertAudit && strings.TrimSpace(a.Detail) != "") {
 		embed["description"] = a.Detail

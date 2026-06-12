@@ -89,27 +89,30 @@ type SSHHardening struct {
 }
 
 type WebhookConfig struct {
-	Enabled bool   `json:"enabled"`
-	URL     string `json:"url"`
-	Secret  string `json:"secret,omitempty"`
+	Enabled          bool   `json:"enabled"`
+	URL              string `json:"url"`
+	Secret           string `json:"secret,omitempty"`
+	LocationLanguage string `json:"location_language,omitempty"`
 }
 
 type WebhookTarget struct {
-	Name    string            `json:"name"`
-	Enabled bool              `json:"enabled"`
-	URL     string            `json:"url"`
-	Format  string            `json:"format"`
-	Secret  string            `json:"secret,omitempty"`
-	Headers map[string]string `json:"headers"`
+	Name             string            `json:"name"`
+	Enabled          bool              `json:"enabled"`
+	URL              string            `json:"url"`
+	Format           string            `json:"format"`
+	Secret           string            `json:"secret,omitempty"`
+	LocationLanguage string            `json:"location_language,omitempty"`
+	Headers          map[string]string `json:"headers"`
 }
 
 type EmailConfig struct {
-	Enabled  bool   `json:"enabled"`
-	From     string `json:"from"`
-	To       string `json:"to"`
-	Password string `json:"password"`
-	SMTPHost string `json:"smtp_host"`
-	SMTPPort int    `json:"smtp_port"`
+	Enabled          bool   `json:"enabled"`
+	From             string `json:"from"`
+	To               string `json:"to"`
+	Password         string `json:"password"`
+	SMTPHost         string `json:"smtp_host"`
+	SMTPPort         int    `json:"smtp_port"`
+	LocationLanguage string `json:"location_language,omitempty"`
 }
 
 type Duration struct {
@@ -195,6 +198,7 @@ func Default() Config {
 		},
 		Notifications: NotificationSet{
 			Console: true,
+			Feishu:  WebhookConfig{LocationLanguage: "zh-CN"},
 			Batch: NotifyBatchConfig{
 				Enabled:  true,
 				Interval: Duration{60 * time.Second},

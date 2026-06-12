@@ -60,7 +60,8 @@
     "feishu": {
       "enabled": false,
       "url": "https://open.feishu.cn/open-apis/bot/v2/hook/xxx",
-      "secret": "your-feishu-sign-secret"
+      "secret": "your-feishu-sign-secret",
+      "location_language": "zh-CN"
     },
     "discord": {
       "enabled": false,

@@ -9,12 +9,14 @@ import (
 
 func TestAlertFromEventBan(t *testing.T) {
 	alert := alertFromEvent(Event{
-		Rule:   "ssh-auth-failure",
-		IP:     "203.0.113.10",
-		Action: "nft drop",
-		Count:  5,
-		DryRun: true,
-		When:   time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC),
+		Rule:        "ssh-auth-failure",
+		IP:          "203.0.113.10",
+		Location:    "United States, Arizona",
+		Action:      "nft",
+		Count:       5,
+		BanDuration: time.Hour,
+		DryRun:      true,
+		When:        time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC),
 	})
 	if alert.Kind != alertBan || alert.Title != "banhack233 模拟封禁" {
 		t.Fatalf("alert=%+v", alert)
@@ -35,6 +37,10 @@ func TestAlertFromEventBan(t *testing.T) {
 	}
 	if payload.Card["schema"] != "2.0" {
 		t.Fatalf("card schema=%v", payload.Card["schema"])
+	}
+	text := alert.WithLocationLanguage("zh-CN").PlainText()
+	if !containsAll(text, "处理方式", "封禁原因", "尝试 SSH 密码登录达到最大 5 次", "封禁持续时间", "1 小时", "归属地中文", "美国") {
+		t.Fatalf("text=%q", text)
 	}
 }
 

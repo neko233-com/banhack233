@@ -24,8 +24,8 @@ func TestSendBatchSingleUsesBanAlert(t *testing.T) {
 
 func TestAlertFromBanBatch(t *testing.T) {
 	alert := alertFromBanBatch([]Event{
-		{Rule: "ssh-auth-failure", IP: "138.99.80.102", Location: "巴西, 圣保罗", Action: "nft", Count: 5, When: time.Now()},
-		{Rule: "ssh-auth-failure", IP: "203.0.113.10", Location: "United States, California", Action: "nft", Count: 6, When: time.Now()},
+		{Rule: "ssh-auth-failure", IP: "138.99.80.102", Location: "巴西, 圣保罗", Action: "nft", Count: 5, BanDuration: time.Hour, When: time.Now()},
+		{Rule: "ssh-auth-failure", IP: "203.0.113.10", Location: "United States, California", Action: "nft", Count: 6, BanDuration: time.Hour, When: time.Now()},
 	})
 	if alert.Kind != alertBanBatch || alert.Title != "banhack233 批量封禁" {
 		t.Fatalf("alert=%+v", alert)
@@ -41,7 +41,7 @@ func TestDispatcherBatchFlush(t *testing.T) {
 		Console: true,
 		Batch: config.NotifyBatchConfig{
 			Enabled:  true,
-			Interval: config.Duration{time.Minute},
+			Interval: config.Duration{Duration: time.Minute},
 			MaxItems: 10,
 		},
 	}, config.GeoIPConfig{Enabled: false})

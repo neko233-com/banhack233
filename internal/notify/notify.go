@@ -17,13 +17,14 @@ import (
 )
 
 type Event struct {
-	Rule     string
-	IP       string
-	Location string
-	Action   string
-	Count    int
-	When     time.Time
-	DryRun   bool
+	Rule        string
+	IP          string
+	Location    string
+	Action      string
+	Count       int
+	BanDuration time.Duration
+	When        time.Time
+	DryRun      bool
 }
 
 func Send(ctx context.Context, cfg config.NotificationSet, ev Event) error {
@@ -35,17 +36,17 @@ func sendAlert(ctx context.Context, cfg config.NotificationSet, alert Alert) err
 		fmt.Println(alert.ConsoleText())
 	}
 	if cfg.Feishu.Enabled {
-		if err := sendWebhook(ctx, config.WebhookTarget{Name: "feishu", Enabled: true, URL: cfg.Feishu.URL, Format: "feishu", Secret: cfg.Feishu.Secret}, alert); err != nil {
+		if err := sendWebhook(ctx, config.WebhookTarget{Name: "feishu", Enabled: true, URL: cfg.Feishu.URL, Format: "feishu", Secret: cfg.Feishu.Secret, LocationLanguage: cfg.Feishu.LocationLanguage}, alert); err != nil {
 			return err
 		}
 	}
 	if cfg.Discord.Enabled {
-		if err := sendWebhook(ctx, config.WebhookTarget{Name: "discord", Enabled: true, URL: cfg.Discord.URL, Format: "discord"}, alert); err != nil {
+		if err := sendWebhook(ctx, config.WebhookTarget{Name: "discord", Enabled: true, URL: cfg.Discord.URL, Format: "discord", LocationLanguage: cfg.Discord.LocationLanguage}, alert); err != nil {
 			return err
 		}
 	}
 	if cfg.Slack.Enabled {
-		if err := sendWebhook(ctx, config.WebhookTarget{Name: "slack", Enabled: true, URL: cfg.Slack.URL, Format: "slack"}, alert); err != nil {
+		if err := sendWebhook(ctx, config.WebhookTarget{Name: "slack", Enabled: true, URL: cfg.Slack.URL, Format: "slack", LocationLanguage: cfg.Slack.LocationLanguage}, alert); err != nil {
 			return err
 		}
 	}
@@ -58,7 +59,8 @@ func sendAlert(ctx context.Context, cfg config.NotificationSet, alert Alert) err
 		}
 	}
 	if cfg.Email.Enabled {
-		if err := SendEmail(cfg.Email, alert.EmailSubject(), alert.EmailBody(), alert.EmailHTML()); err != nil {
+		emailAlert := alert.WithLocationLanguage(cfg.Email.LocationLanguage)
+		if err := SendEmail(cfg.Email, emailAlert.EmailSubject(), emailAlert.EmailBody(), emailAlert.EmailHTML()); err != nil {
 			return err
 		}
 	}
@@ -66,6 +68,7 @@ func sendAlert(ctx context.Context, cfg config.NotificationSet, alert Alert) err
 }
 
 func sendWebhook(ctx context.Context, target config.WebhookTarget, alert Alert) error {
+	alert = alert.WithLocationLanguage(target.LocationLanguage)
 	body, contentType, err := webhookBody(target.Format, alert, target.Secret)
 	if err != nil {
 		return err

@@ -156,7 +156,7 @@ func scanLines(ctx context.Context, cfg config.Config, rule config.Rule, dispatc
 		}
 		st.Bans[key] = now.Add(rule.BanTime.Duration)
 		logger.Ban(now, rule.Name, ip, action, len(st.Hits[key]), cfg.DryRun)
-		if err := dispatcher.NotifyBan(ctx, notify.Event{Rule: rule.Name, IP: ip, Action: action, Count: len(st.Hits[key]), When: now, DryRun: cfg.DryRun}); err != nil {
+		if err := dispatcher.NotifyBan(ctx, notify.Event{Rule: rule.Name, IP: ip, Action: action, Count: len(st.Hits[key]), BanDuration: rule.BanTime.Duration, When: now, DryRun: cfg.DryRun}); err != nil {
 			return err
 		}
 	}

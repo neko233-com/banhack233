@@ -54,7 +54,7 @@ func Test(ctx context.Context, cfg config.NotificationSet, opts TestOptions) ([]
 		} else if strings.TrimSpace(cfg.Feishu.URL) == "" {
 			appendResult("feishu", true, "missing url", nil)
 		} else {
-			err := sendWebhook(ctx, config.WebhookTarget{Name: "feishu", Enabled: true, URL: cfg.Feishu.URL, Format: "feishu", Secret: cfg.Feishu.Secret}, alert)
+			err := sendWebhook(ctx, config.WebhookTarget{Name: "feishu", Enabled: true, URL: cfg.Feishu.URL, Format: "feishu", Secret: cfg.Feishu.Secret, LocationLanguage: cfg.Feishu.LocationLanguage}, alert)
 			appendResult("feishu", false, "", err)
 		}
 	}
@@ -65,7 +65,7 @@ func Test(ctx context.Context, cfg config.NotificationSet, opts TestOptions) ([]
 		} else if strings.TrimSpace(cfg.Discord.URL) == "" {
 			appendResult("discord", true, "missing url", nil)
 		} else {
-			err := sendWebhook(ctx, config.WebhookTarget{Name: "discord", Enabled: true, URL: cfg.Discord.URL, Format: "discord"}, alert)
+			err := sendWebhook(ctx, config.WebhookTarget{Name: "discord", Enabled: true, URL: cfg.Discord.URL, Format: "discord", LocationLanguage: cfg.Discord.LocationLanguage}, alert)
 			appendResult("discord", false, "", err)
 		}
 	}
@@ -76,7 +76,7 @@ func Test(ctx context.Context, cfg config.NotificationSet, opts TestOptions) ([]
 		} else if strings.TrimSpace(cfg.Slack.URL) == "" {
 			appendResult("slack", true, "missing url", nil)
 		} else {
-			err := sendWebhook(ctx, config.WebhookTarget{Name: "slack", Enabled: true, URL: cfg.Slack.URL, Format: "slack"}, alert)
+			err := sendWebhook(ctx, config.WebhookTarget{Name: "slack", Enabled: true, URL: cfg.Slack.URL, Format: "slack", LocationLanguage: cfg.Slack.LocationLanguage}, alert)
 			appendResult("slack", false, "", err)
 		}
 	}
@@ -106,7 +106,8 @@ func Test(ctx context.Context, cfg config.NotificationSet, opts TestOptions) ([]
 		if !cfg.Email.Enabled {
 			appendResult("email", true, "disabled", nil)
 		} else {
-			err := SendEmail(cfg.Email, alert.EmailSubject(), alert.EmailBody(), alert.EmailHTML())
+			emailAlert := alert.WithLocationLanguage(cfg.Email.LocationLanguage)
+			err := SendEmail(cfg.Email, emailAlert.EmailSubject(), emailAlert.EmailBody(), emailAlert.EmailHTML())
 			appendResult("email", false, "", err)
 		}
 	}

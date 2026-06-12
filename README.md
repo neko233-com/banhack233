@@ -476,7 +476,8 @@ banhack233 notify-test -message "自定义测试内容"
     "feishu": {
       "enabled": true,
       "url": "https://open.feishu.cn/open-apis/bot/v2/hook/xxxx",
-      "secret": "your-feishu-sign-secret"
+      "secret": "your-feishu-sign-secret",
+      "location_language": "zh-CN"
     }
   }
 }
@@ -487,6 +488,10 @@ banhack233 notify-test -message "自定义测试内容"
 若机器人开启「签名校验」，配置 `secret`；程序自动附带 `timestamp` 和 `sign`（HmacSHA256 + Base64，见[飞书文档](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot)）。未开启时可省略 `secret`。
 
 各渠道统一按告警类型包装：**飞书**交互卡片、**Discord** embed、**Slack** Block Kit、**邮箱** HTML 卡片（含纯文本兜底）、**控制台**边框文本、**json webhook** 结构化字段。
+
+通知字段统一为：规则、来源 IP、归属地、处理方式、封禁原因、封禁持续时间、时间。`nft` / `iptables` / `windows-firewall` 会显示在“处理方式”。
+
+`location_language` 控制归属地翻译。飞书这类中文渠道建议 `zh-CN`，会额外显示“归属地中文”。如果没有可翻译内容，则仍显示原文。
 
 测试通知（推荐，直接向已启用渠道发测试消息）：
 
@@ -519,7 +524,7 @@ banhack233 test
 }
 ```
 
-Discord 使用 embed 卡片，字段展示规则、IP、处置等信息。
+Discord 使用 embed 卡片，字段展示规则、IP、处理方式等信息。
 
 ## Slack 通知
 
@@ -568,7 +573,7 @@ Slack 使用 Block Kit 区块消息，含标题、字段分区与时间脚注。
 | `json` | `{"title","kind","time","fields","detail","text"}` 结构化 JSON |
 | `discord` | embed 卡片 |
 | `slack` | Block Kit 区块消息 |
-| `feishu` / `lark` | 交互卡片 `msg_type=interactive`；签名校验配置 `secret` |
+| `feishu` / `lark` | 交互卡片 `msg_type=interactive`；签名校验配置 `secret`；中文归属地配置 `location_language=zh-CN` |
 
 ## 邮箱通知
 

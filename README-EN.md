@@ -357,7 +357,8 @@ Supported channels:
     "feishu": {
       "enabled": true,
       "url": "https://open.feishu.cn/open-apis/bot/v2/hook/xxxx",
-      "secret": "your-feishu-sign-secret"
+      "secret": "your-feishu-sign-secret",
+      "location_language": "zh-CN"
     }
   }
 }
@@ -367,7 +368,9 @@ Feishu messages use interactive cards (JSON 2.0) with color-coded headers: red f
 
 If signature verification is enabled, set `secret`; the client adds `timestamp` and `sign` automatically (HmacSHA256 + Base64 per [Feishu docs](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot)). Omit `secret` when verification is off.
 
-All channels share the same alert fields with native wrappers: Feishu interactive cards, Discord embeds, Slack Block Kit, HTML email (with plain-text fallback), bordered console output, and structured JSON for `json` webhooks.
+All channels share the same alert fields with native wrappers: rule, source IP, location, handling method, ban reason, ban duration, and time.
+
+`location_language` controls location translation. Chinese channels such as Feishu should use `zh-CN`; the alert adds a separate Chinese location row. If no translation is available, the original text remains.
 
 Test notifications (sends to all enabled channels):
 
@@ -435,7 +438,7 @@ Formats:
 | `json` | Structured JSON (`title`, `kind`, `time`, `fields`, `detail`, `text`) |
 | `discord` | Embed card |
 | `slack` | Block Kit message |
-| `feishu` / `lark` | Interactive card; set `secret` when signature verification is on |
+| `feishu` / `lark` | Interactive card; set `secret` for signature verification; set `location_language=zh-CN` for Chinese location row |
 
 ### Email
 
