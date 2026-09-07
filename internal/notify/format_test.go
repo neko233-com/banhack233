@@ -7,6 +7,18 @@ import (
 	"time"
 )
 
+func TestNotifyOnlyIsNeverReportedAsBanned(t *testing.T) {
+	alert := alertFromEvent(Event{Rule: "ssh", IP: "192.0.2.3", Action: "notify", Count: 5, BanDuration: time.Hour})
+	if alert.Kind != alertNotify {
+		t.Fatalf("kind=%s", alert.Kind)
+	}
+	for _, text := range []string{alert.PlainText(), alert.EmailSubject(), alert.EmailHTML()} {
+		if !strings.Contains(text, "未封禁") || strings.Contains(text, "已封禁") || strings.Contains(text, "封禁持续时间") {
+			t.Fatalf("misleading notification: %s", text)
+		}
+	}
+}
+
 func TestAlertFromEventBan(t *testing.T) {
 	alert := alertFromEvent(Event{
 		Rule:        "ssh-auth-failure",

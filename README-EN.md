@@ -287,6 +287,28 @@ This can prevent system, NAT, or conntrack layers from cleaning up idle business
 
 If an application has its own 5-minute idle timeout, fix the application heartbeat or timeout too.
 
+## Shared Office IPs and Whitelists
+
+A public SSH server cannot see a client's MAC address: MAC addresses stay on the local link. Behind NAT, counting failures by username still affects everyone if enforcement blocks the shared IP. Use a separate SSH key or certificate for each device when device identity is needed. Password login and root login remain supported.
+
+The default rule counts only `Failed password` authentication failures. Connection counts, successful logins, and standalone `Invalid user` messages do not trigger it, preventing double counting. Upgrades preserve existing config; remove the separate `Invalid user` pattern from old rules as well. SSH `MaxAuthTries` limits authentication attempts within one connection, not new connections per minute.
+
+Add permanent office exceptions using individual IPv4/IPv6 addresses or CIDR networks:
+
+```sh
+sudo banhack233 whitelist 203.0.113.10 198.51.100.0/24
+sudo systemctl restart banhack233
+banhack233 whitelist
+```
+
+The command preserves existing config fields and whitelist entries. For another config, use `banhack233 whitelist -config /path/config.json 203.0.113.10`. The equivalent setting is `"ignore_ips": ["127.0.0.1", "::1", "203.0.113.10"]`. After restart, ignored addresses no longer accumulate failures. In production mode, their existing automatic bans recorded in state are removed along with failure counts. Use `banhack233 unban 203.0.113.10` for leftover firewall entries missing from state.
+
+Automatic bans are actually removed on the first scan after `ban_time` expires. If multiple rules block the same IP, all must release it first. Custom commands must implement their own reversal. `dry_run=true` never modifies existing firewall rules.
+
+To disable IP blocking for a rule, change its `"action": "auto"` to `"action": "notify"` and restart. It only alerts at the failure threshold, using `ban_time` as the alert cooldown. Notifications explicitly say the IP was not blocked. In production mode, existing automatic bans from that rule are also released unless another rule still blocks the IP. Other rules keep their own behavior.
+
+If Fail2ban, SSHGuard, cloud firewalls, or SSH connection rate limits also run, configure their exceptions separately. `banhack233 whitelist` only manages this application. A rule limiting new SSH connections per shared IP can reject correct passwords and keys too; add a persistent SSH-port exception for trusted office egress addresses.
+
 ## Config Example
 
 ```json
@@ -302,8 +324,7 @@ If an application has its own 5-minute idle timeout, fix the application heartbe
       "name": "ssh-auth-failure",
       "log_paths": ["/var/log/auth.log", "/var/log/secure"],
       "patterns": [
-        "Failed password.*from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)",
-        "Invalid user .* from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)"
+        "Failed password.*from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)"
       ],
       "max_attempts": 5,
       "find_time": "10m",
@@ -326,11 +347,11 @@ Important fields:
 | --- | --- |
 | `dry_run` | Alert only when `true`; no real firewall ban |
 | `start_at_end` | Monitor only new logs on first run |
-| `ignore_ips` | Never-ban whitelist |
+| `ignore_ips` | IP/CIDR whitelist; releases existing automatic bans after restart in production mode |
 | `max_attempts` | Failure threshold |
 | `find_time` | Detection window |
-| `ban_time` | Ban duration recorded in state |
-| `action` | `auto` or custom command |
+| `ban_time` | Automatic ban duration; removal on the next scan after expiry; alert cooldown in `notify` mode |
+| `action` | `auto` blocks IPs; `notify` only alerts; or a custom command |
 | `malware.enabled` | Include malware checks in doctor/hourly audit |
 | `malware.direct_kill` | Directly kill suspicious processes, default false |
 | `malware.report_dir` | Report directory |

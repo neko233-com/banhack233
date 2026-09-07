@@ -1,6 +1,19 @@
+# Build outputs, local SSH/deployment helpers, and integration-test artifacts.
 dist/
 
 # Local cross-compile artifacts (release builds use dist/)
 /banhack233
 /banhack233.exe
 /banhack233-*
+
+# Machine-specific runtime configuration and state (may contain secrets).
+/config.json
+/state.json
+/reports/
+/.local/
+
+# Local test / profiling outputs.
+/*.test
+/coverage*.out
+/coverage*.html
+__pycache__/

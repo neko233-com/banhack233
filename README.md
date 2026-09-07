@@ -375,6 +375,28 @@ Linux 优先使用 `nft`，没有则使用 `iptables`。
 sudo banhack233 unban 203.0.113.10
 ```
 
+### 公司共用公网 IP / 白名单
+
+公网 SSH 无法获取客户端电脑的 MAC 地址；MAC 只在本地链路内有效。同一个 NAT 出口下，即使按用户名累计失败，防火墙封 IP 仍会影响所有同事。需要识别具体设备时，使用每台设备独立的 SSH 密钥/证书；密码登录和 root 登录仍受支持。
+
+默认规则只累计 `Failed password`（密码认证失败），不因连接次数、成功登录或单独的 `Invalid user` 日志封禁，避免一次错误被重复计数。升级保留旧配置，已有规则需同步删除独立的 `Invalid user` 匹配。SSH 的 `MaxAuthTries` 只限制单次连接内的认证尝试，不是每分钟新连接数量限制。
+
+为公司出口添加永久白名单，支持单个 IPv4/IPv6 地址或 CIDR 网段：
+
+```sh
+sudo banhack233 whitelist 203.0.113.10 198.51.100.0/24
+sudo systemctl restart banhack233
+banhack233 whitelist
+```
+
+命令保留现有配置和白名单；自定义配置路径用 `banhack233 whitelist -config /path/config.json 203.0.113.10`。等价配置为 `"ignore_ips": ["127.0.0.1", "::1", "203.0.113.10"]`。重启后白名单不再累计失败；生产模式会解除状态文件中对应的已有自动封禁并清除计数。没有状态记录的遗留规则，可先用 `unban` 手动解除。
+
+`ban_time` 到期后，守护进程会在下一轮扫描实际解封；多条规则封同一个 IP 时，等待所有规则到期。自定义封禁命令需自行实现解封。`dry_run=true` 不修改已有防火墙规则。
+
+不希望某条规则封 IP 时，将该规则的 `"action": "auto"` 改为 `"action": "notify"`，再重启。该规则达到阈值后只告警，`ban_time` 用作告警冷却时间；通知明确显示“未封禁”，生产模式也会解除该规则已有的自动封禁（同 IP 仍被其他规则封禁时除外）。其他规则继续按各自配置执行。
+
+如果服务器还运行 Fail2ban、SSHGuard、云防火墙或 SSH 连接频率限制，需要分别添加相同白名单。`banhack233 whitelist` 只管理本项目；这些独立拦截不受其控制。尤其是“同 IP 每分钟最多 N 次新连接”的规则，正确密码/密钥也可能触发，应为可信办公出口设置 SSH 端口例外并持久化。
+
 ### 测试一次扫描
 
 ```sh
@@ -412,8 +434,7 @@ banhack233 notify-test -message "自定义测试内容"
       "name": "ssh-auth-failure",
       "log_paths": ["/var/log/auth.log", "/var/log/secure"],
       "patterns": [
-        "Failed password.*from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)",
-        "Invalid user .* from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)"
+        "Failed password.*from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)"
       ],
       "max_attempts": 5,
       "find_time": "10m",
@@ -439,12 +460,12 @@ banhack233 notify-test -message "自定义测试内容"
 | `state_path` | 状态文件路径 |
 | `dry_run` | `true` 时只告警，不真封禁 |
 | `start_at_end` | 首次运行从日志末尾开始，避免扫历史日志刷屏 |
-| `ignore_ips` | 永不封禁白名单 |
+| `ignore_ips` | IP/CIDR 白名单；生产模式重启后清除对应已有自动封禁 |
 | `rules` | 检测规则列表 |
 | `max_attempts` | 时间窗口内失败次数阈值 |
 | `find_time` | 检测时间窗口 |
-| `ban_time` | 状态里记录的封禁时长 |
-| `action` | `auto` 或自定义命令 |
+| `ban_time` | 自动封禁时长，到期在下一轮扫描解封；`notify` 模式为告警冷却时间 |
+| `action` | `auto` 自动封 IP、`notify` 仅告警，或自定义命令 |
 | `malware.enabled` | 是否在 doctor/定时审计中加入恶意程序巡检 |
 | `malware.direct_kill` | 是否自动直接 kill 可疑进程，默认 false |
 | `malware.report_dir` | 报告目录 |

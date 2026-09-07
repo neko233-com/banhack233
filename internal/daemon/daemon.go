@@ -3,6 +3,7 @@ package daemon
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -64,12 +65,18 @@ func RunOnce(ctx context.Context, cfg config.Config) error {
 	return runOnce(ctx, cfg, dispatcher, logger)
 }
 
-func runOnce(ctx context.Context, cfg config.Config, dispatcher *notify.Dispatcher, logger *applog.Logger) error {
+func runOnce(ctx context.Context, cfg config.Config, dispatcher *notify.Dispatcher, logger *applog.Logger) (result error) {
 	st, err := loadState(cfg.StatePath)
 	if err != nil {
 		return err
 	}
+	// Persist completed firewall operations even when a later scan or notification fails.
+	defer func() { result = errors.Join(result, saveState(cfg.StatePath, st)) }()
 	now := time.Now()
+	releaseErr := reconcileBans(cfg, &st, now, ban.Remove)
+	if releaseErr != nil {
+		logger.Error(now, releaseErr.Error())
+	}
 	for _, rule := range cfg.Rules {
 		if err := scanRule(ctx, cfg, rule, dispatcher, logger, &st, now); err != nil {
 			return err
@@ -88,7 +95,7 @@ func runOnce(ctx context.Context, cfg config.Config, dispatcher *notify.Dispatch
 		}
 		st.LastAudit = now
 	}
-	return saveState(cfg.StatePath, st)
+	return releaseErr
 }
 
 func scanRule(ctx context.Context, cfg config.Config, rule config.Rule, dispatcher *notify.Dispatcher, logger *applog.Logger, st *state, now time.Time) error {
@@ -139,7 +146,7 @@ func scanLines(ctx context.Context, cfg config.Config, rule config.Rule, dispatc
 		if ip == "" {
 			continue
 		}
-		if ignoredIP(cfg.IgnoreIPs, ip) {
+		if config.IsIgnoredIP(cfg.IgnoreIPs, ip) {
 			continue
 		}
 		key := rule.Name + "|" + ip
@@ -150,26 +157,35 @@ func scanLines(ctx context.Context, cfg config.Config, rule config.Rule, dispatc
 		if until, banned := st.Bans[key]; banned && until.After(now) {
 			continue
 		}
+		if cfg.DryRun || rule.Action == "notify" {
+			if until := st.Cooldowns[key]; until.After(now) {
+				continue
+			}
+		} else {
+			delete(st.Cooldowns, key)
+		}
 		action, err := ban.Apply(ip, rule.Action, cfg.DryRun)
 		if err != nil {
 			return err
 		}
-		st.Bans[key] = now.Add(rule.BanTime.Duration)
+		if action == "notify" || action == "dry-run" {
+			if st.Cooldowns == nil {
+				st.Cooldowns = map[string]time.Time{}
+			}
+			st.Cooldowns[key] = now.Add(rule.BanTime.Duration)
+		} else {
+			st.Bans[key] = now.Add(rule.BanTime.Duration)
+			if st.BanActions == nil {
+				st.BanActions = map[string]string{}
+			}
+			st.BanActions[key] = action
+		}
 		logger.Ban(now, rule.Name, ip, action, len(st.Hits[key]), cfg.DryRun)
 		if err := dispatcher.NotifyBan(ctx, notify.Event{Rule: rule.Name, IP: ip, Action: action, Count: len(st.Hits[key]), BanDuration: rule.BanTime.Duration, When: now, DryRun: cfg.DryRun}); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func ignoredIP(ignore []string, ip string) bool {
-	for _, item := range ignore {
-		if strings.TrimSpace(item) == ip {
-			return true
-		}
-	}
-	return false
 }
 
 func compilePatterns(patterns []string) ([]*regexp.Regexp, error) {

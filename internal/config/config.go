@@ -162,7 +162,7 @@ func Default() Config {
 			{
 				Name:        "ssh-auth-failure",
 				LogPaths:    defaultAuthLogs(),
-				Patterns:    []string{`Failed password.*from (?P<ip>\d+\.\d+\.\d+\.\d+)`, `Invalid user .* from (?P<ip>\d+\.\d+\.\d+\.\d+)`},
+				Patterns:    []string{`Failed password.*from (?P<ip>\d+\.\d+\.\d+\.\d+)`},
 				MaxAttempts: 5,
 				FindTime:    Duration{10 * time.Minute},
 				BanTime:     Duration{1 * time.Hour},
@@ -230,6 +230,13 @@ func Load(path string) (Config, error) {
 }
 
 func (c *Config) Normalize() error {
+	for i, item := range c.IgnoreIPs {
+		item = strings.TrimSpace(item)
+		if err := validateIgnoreIP(item); err != nil {
+			return err
+		}
+		c.IgnoreIPs[i] = item
+	}
 	if c.Interval.Duration <= 0 {
 		c.Interval = Duration{30 * time.Second}
 	}

@@ -14,6 +14,7 @@ const (
 	alertBanBatch alertKind = "ban_batch"
 	alertAudit    alertKind = "audit"
 	alertTest     alertKind = "test"
+	alertNotify   alertKind = "notify"
 )
 
 type alertRow struct {
@@ -65,9 +66,13 @@ func alertFromEvent(ev Event) Alert {
 			Detail: ev.Action,
 		}
 	}
+	kind, title := alertBan, banTitle(ev.DryRun, 1)
+	if ev.Action == "notify" {
+		kind, title = alertNotify, "banhack233 登录失败告警（未封禁）"
+	}
 	return Alert{
-		Kind:        alertBan,
-		Title:       banTitle(ev.DryRun, 1),
+		Kind:        kind,
+		Title:       title,
 		Rule:        ev.Rule,
 		IP:          ev.IP,
 		Location:    ev.Location,
@@ -257,7 +262,7 @@ func (a Alert) accentColor() string {
 	switch a.Kind {
 	case alertTest:
 		return "#3498DB"
-	case alertAudit:
+	case alertAudit, alertNotify:
 		return "#F39C12"
 	case alertBan, alertBanBatch:
 		if a.DryRun {
@@ -303,12 +308,22 @@ func (a Alert) rows() []alertRow {
 			rows = append(rows, alertRow{Label: "处理方式", Value: a.Action})
 		}
 		if a.Count > 0 {
-			rows = append(rows, alertRow{Label: "封禁原因", Value: banReason(a.Rule, a.Count)})
+			label := "封禁原因"
+			if a.Kind == alertNotify {
+				label = "告警原因"
+			}
+			rows = append(rows, alertRow{Label: label, Value: banReason(a.Rule, a.Count)})
 		}
 		if a.BanDuration > 0 {
-			rows = append(rows, alertRow{Label: "封禁持续时间", Value: humanDuration(a.BanDuration)})
+			label := "封禁持续时间"
+			if a.Kind == alertNotify {
+				label = "告警冷却时间"
+			}
+			rows = append(rows, alertRow{Label: label, Value: humanDuration(a.BanDuration)})
 		}
-		if a.DryRun {
+		if a.Kind == alertNotify {
+			rows = append(rows, alertRow{Label: "模式", Value: "notify（仅告警，不封禁 IP）"})
+		} else if a.DryRun {
 			rows = append(rows, alertRow{Label: "模式", Value: "dry_run（仅通知，不封禁）"})
 		}
 		return rows
@@ -406,6 +421,8 @@ func (a Alert) ConsoleText() string {
 
 func (a Alert) EmailSubject() string {
 	switch a.Kind {
+	case alertNotify:
+		return a.Title
 	case alertTest:
 		return "banhack233 通知测试"
 	case alertAudit:
@@ -478,7 +495,7 @@ func (a Alert) feishuHeaderTemplate() string {
 	switch a.Kind {
 	case alertTest:
 		return "blue"
-	case alertAudit:
+	case alertAudit, alertNotify:
 		return "orange"
 	case alertBan, alertBanBatch:
 		if a.DryRun {

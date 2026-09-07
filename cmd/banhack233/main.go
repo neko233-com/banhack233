@@ -58,6 +58,8 @@ func run(args []string) error {
 		}
 		fmt.Print(out)
 		return nil
+	case "whitelist":
+		return runWhitelist(args[1:])
 	case "unban":
 		if len(args) < 2 {
 			return fmt.Errorf("usage: banhack233 unban <ip>")
@@ -83,6 +85,29 @@ func run(args []string) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runWhitelist(args []string) error {
+	fs := flag.NewFlagSet("banhack233 whitelist", flag.ContinueOnError)
+	path := fs.String("config", config.DefaultPath(), "config file")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() == 0 {
+		cfg, err := config.Load(*path)
+		if err != nil {
+			return err
+		}
+		fmt.Println(strings.Join(cfg.IgnoreIPs, "\n"))
+		return nil
+	}
+	ips, err := config.AddIgnoreIPs(*path, fs.Args())
+	if err != nil {
+		return err
+	}
+	fmt.Println(strings.Join(ips, "\n"))
+	fmt.Println("Saved. Restart the daemon to apply the whitelist and release its existing automatic bans (production mode).")
+	return nil
 }
 
 func runMalwareScan(args []string) error {
@@ -279,6 +304,7 @@ Usage:
   banhack233 secure-ssh -write               apply SSH hardening; requires allowed_users unless -force
   banhack233 keepalive [-write] [-tcp]       keep SSH alive; TCP sysctl is opt-in
   banhack233 ban-list                        list active ban backend entries
+  banhack233 whitelist [-config path] [ip/cidr ...] list or add never-ban addresses; restart daemon after changes
   banhack233 unban <ip>                      remove a blocked IP
   banhack233 install-autostart [-config path] install systemd or Windows startup task
   banhack233 uninstall-autostart             remove autostart

@@ -55,7 +55,7 @@ func (d *Dispatcher) enrich(ev Event) Event {
 
 func (d *Dispatcher) NotifyBan(ctx context.Context, ev Event) error {
 	ev = d.enrich(ev)
-	if !d.batch.Enabled {
+	if !d.batch.Enabled || ev.Action == "notify" {
 		return Send(ctx, d.cfg, ev)
 	}
 	d.mu.Lock()

@@ -3,12 +3,19 @@ package ban
 import (
 	"bytes"
 	"fmt"
+	"net/netip"
 	"os/exec"
 	"runtime"
 	"strings"
 )
 
 func Apply(ip, action string, dryRun bool) (string, error) {
+	if _, err := netip.ParseAddr(ip); err != nil {
+		return "", fmt.Errorf("invalid IP %q: %w", ip, err)
+	}
+	if action == "notify" {
+		return "notify", nil
+	}
 	if dryRun {
 		return "dry-run", nil
 	}
@@ -56,16 +63,24 @@ func ensureNFT() error {
 add table inet banhack233
 add set inet banhack233 blocked { type ipv4_addr; flags timeout; }
 add chain inet banhack233 input { type filter hook input priority -100; policy accept; }
-add rule inet banhack233 input ip saddr @blocked drop
 `
 	for _, line := range strings.Split(script, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		_ = runOK(exec.Command("nft", strings.Fields(line)...))
+		if err := runOK(exec.Command("nft", strings.Fields(line)...)); err != nil {
+			return err
+		}
 	}
-	return nil
+	out, err := exec.Command("nft", "list", "chain", "inet", "banhack233", "input").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("list nft chain: %s: %w", out, err)
+	}
+	if strings.Contains(string(out), "ip saddr @blocked drop") {
+		return nil
+	}
+	return runOK(exec.Command("nft", "add", "rule", "inet", "banhack233", "input", "ip", "saddr", "@blocked", "drop"))
 }
 
 func runOK(cmd *exec.Cmd) error {

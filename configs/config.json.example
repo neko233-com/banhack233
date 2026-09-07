@@ -10,8 +10,7 @@
       "name": "ssh-auth-failure",
       "log_paths": ["/var/log/auth.log", "/var/log/secure"],
       "patterns": [
-        "Failed password.*from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)",
-        "Invalid user .* from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)"
+        "Failed password.*from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)"
       ],
       "max_attempts": 5,
       "find_time": "10m",

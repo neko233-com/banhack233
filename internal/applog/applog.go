@@ -46,6 +46,9 @@ func (l *Logger) Ban(when time.Time, rule, ip, action string, count int, dryRun 
 	if dryRun {
 		mode = "ban-dry-run"
 	}
+	if action == "notify" {
+		mode = "notify-only"
+	}
 	l.write(when, mode, fmt.Sprintf("rule=%s ip=%s action=%s count=%d", rule, ip, action, count))
 }
 
