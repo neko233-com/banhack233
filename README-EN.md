@@ -324,12 +324,19 @@ If Fail2ban, SSHGuard, cloud firewalls, or SSH connection rate limits also run, 
       "name": "ssh-auth-failure",
       "log_paths": ["/var/log/auth.log", "/var/log/secure"],
       "patterns": [
-        "Failed password.*from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)"
+        "Failed password for(?: invalid user)? (?P<user>\\S+) from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)"
       ],
       "max_attempts": 5,
       "find_time": "10m",
       "ban_time": "1h",
-      "action": "auto"
+      "action": "auto",
+      "count_by_user": true,
+      "region_rules": {
+        "max_attempts": {
+          "广州": 100,
+          "Guangzhou": 100
+        }
+      }
     }
   ],
   "malware": {
@@ -352,6 +359,8 @@ Important fields:
 | `find_time` | Detection window |
 | `ban_time` | Automatic ban duration; removal on the next scan after expiry; alert cooldown in `notify` mode |
 | `action` | `auto` blocks IPs; `notify` only alerts; or a custom command |
+| `count_by_user` | When `true`, count failures per IP+user; requires `(?P<user>...)` in patterns. Reduces false bans on shared egress IPs |
+| `region_rules.max_attempts` | Override threshold by GeoIP Country/Region/City; keys support Chinese/English (`广州`/`Guangzhou`) |
 | `malware.enabled` | Include malware checks in doctor/hourly audit |
 | `malware.direct_kill` | Directly kill suspicious processes, default false |
 | `malware.report_dir` | Report directory |

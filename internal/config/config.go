@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/neko233-com/banhack233/internal/geoip"
 )
 
 type Config struct {
@@ -40,6 +42,15 @@ type Rule struct {
 	FindTime    Duration `json:"find_time"`
 	BanTime     Duration `json:"ban_time"`
 	Action      string   `json:"action"`
+	// CountByUser: 按 IP+用户名 计失败次数，避免同一出口 IP 上多用户共享阈值导致误封。
+	CountByUser bool         `json:"count_by_user,omitempty"`
+	RegionRules *RegionRules `json:"region_rules,omitempty"`
+}
+
+// RegionRules 按 GeoIP 地区覆盖 max_attempts。
+// key 匹配 Country/Region/City，大小写不敏感，支持中英文（广州/Guangzhou）。
+type RegionRules struct {
+	MaxAttempts map[string]int `json:"max_attempts"`
 }
 
 type NotificationSet struct {
@@ -162,11 +173,18 @@ func Default() Config {
 			{
 				Name:        "ssh-auth-failure",
 				LogPaths:    defaultAuthLogs(),
-				Patterns:    []string{`Failed password.*from (?P<ip>\d+\.\d+\.\d+\.\d+)`},
+				Patterns:    []string{`Failed password for(?: invalid user)? (?P<user>\S+) from (?P<ip>\d+\.\d+\.\d+\.\d+)`},
 				MaxAttempts: 5,
 				FindTime:    Duration{10 * time.Minute},
 				BanTime:     Duration{1 * time.Hour},
 				Action:      "auto",
+				CountByUser: true,
+				RegionRules: &RegionRules{
+					MaxAttempts: map[string]int{
+						"广州":       100,
+						"Guangzhou": 100,
+					},
+				},
 			},
 		},
 		Hardening: Hardening{SSH: SSHHardening{
@@ -291,8 +309,56 @@ func (c *Config) Normalize() error {
 		if r.Action == "" {
 			r.Action = "auto"
 		}
+		if r.RegionRules != nil {
+			for k, v := range r.RegionRules.MaxAttempts {
+				key := strings.TrimSpace(k)
+				if key == "" || v <= 0 {
+					delete(r.RegionRules.MaxAttempts, k)
+					continue
+				}
+				if key != k {
+					delete(r.RegionRules.MaxAttempts, k)
+					r.RegionRules.MaxAttempts[key] = v
+				}
+			}
+			if len(r.RegionRules.MaxAttempts) == 0 {
+				r.RegionRules = nil
+			}
+		}
 	}
 	return nil
+}
+
+// MatchRegion 在 region_rules 中查找命中地区，返回覆盖后的 max_attempts。
+func MatchRegion(rules *RegionRules, loc geoip.Location) (int, bool) {
+	if rules == nil || len(rules.MaxAttempts) == 0 {
+		return 0, false
+	}
+	places := []string{loc.City, loc.Region, loc.Country}
+	for key, max := range rules.MaxAttempts {
+		nk := normalizePlace(key)
+		if nk == "" {
+			continue
+		}
+		for _, place := range places {
+			np := normalizePlace(place)
+			if np == "" {
+				continue
+			}
+			if np == nk || strings.Contains(np, nk) || strings.Contains(nk, np) {
+				return max, true
+			}
+		}
+	}
+	return 0, false
+}
+
+func normalizePlace(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	for _, suffix := range []string{"省", "市", "自治区", "特别行政区", " province", " city", " region"} {
+		s = strings.TrimSpace(strings.TrimSuffix(s, suffix))
+	}
+	return s
 }
 
 func defaultReportPath() string {

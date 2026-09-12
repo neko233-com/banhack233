@@ -14,6 +14,7 @@ import (
 	"github.com/neko233-com/banhack233/internal/audit"
 	"github.com/neko233-com/banhack233/internal/ban"
 	"github.com/neko233-com/banhack233/internal/config"
+	"github.com/neko233-com/banhack233/internal/geoip"
 	"github.com/neko233-com/banhack233/internal/notify"
 )
 
@@ -77,8 +78,13 @@ func runOnce(ctx context.Context, cfg config.Config, dispatcher *notify.Dispatch
 	if releaseErr != nil {
 		logger.Error(now, releaseErr.Error())
 	}
+	var lookup *geoip.Lookup
+	if cfg.GeoIP.Enabled {
+		lookup = geoip.New(cfg.GeoIP.DBPath)
+		defer func() { _ = lookup.Close() }()
+	}
 	for _, rule := range cfg.Rules {
-		if err := scanRule(ctx, cfg, rule, dispatcher, logger, &st, now); err != nil {
+		if err := scanRule(ctx, cfg, rule, dispatcher, logger, &st, now, lookup); err != nil {
 			return err
 		}
 	}
@@ -98,14 +104,14 @@ func runOnce(ctx context.Context, cfg config.Config, dispatcher *notify.Dispatch
 	return releaseErr
 }
 
-func scanRule(ctx context.Context, cfg config.Config, rule config.Rule, dispatcher *notify.Dispatcher, logger *applog.Logger, st *state, now time.Time) error {
+func scanRule(ctx context.Context, cfg config.Config, rule config.Rule, dispatcher *notify.Dispatcher, logger *applog.Logger, st *state, now time.Time, lookup *geoip.Lookup) error {
 	for _, path := range rule.LogPaths {
 		if strings.HasPrefix(path, "eventlog:") {
 			lines, err := readWindowsEvents(strings.TrimPrefix(path, "eventlog:"))
 			if err != nil {
 				return err
 			}
-			if err := scanLines(ctx, cfg, rule, dispatcher, logger, st, now, lines); err != nil {
+			if err := scanLines(ctx, cfg, rule, dispatcher, logger, st, now, lines, lookup); err != nil {
 				return err
 			}
 			continue
@@ -129,29 +135,37 @@ func scanRule(ctx context.Context, cfg config.Config, rule config.Rule, dispatch
 			return err
 		}
 		st.Offsets[path] = offset
-		if err := scanLines(ctx, cfg, rule, dispatcher, logger, st, now, lines); err != nil {
+		if err := scanLines(ctx, cfg, rule, dispatcher, logger, st, now, lines, lookup); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func scanLines(ctx context.Context, cfg config.Config, rule config.Rule, dispatcher *notify.Dispatcher, logger *applog.Logger, st *state, now time.Time, lines []string) error {
+func scanLines(ctx context.Context, cfg config.Config, rule config.Rule, dispatcher *notify.Dispatcher, logger *applog.Logger, st *state, now time.Time, lines []string, lookup *geoip.Lookup) error {
 	matchers, err := compilePatterns(rule.Patterns)
 	if err != nil {
 		return err
 	}
 	for _, line := range lines {
-		ip := matchIP(matchers, line)
+		ip, user := matchIPUser(matchers, line)
 		if ip == "" {
 			continue
 		}
 		if config.IsIgnoredIP(cfg.IgnoreIPs, ip) {
 			continue
 		}
-		key := rule.Name + "|" + ip
+		maxAttempts := rule.MaxAttempts
+		if rule.RegionRules != nil && lookup != nil {
+			if loc, err := lookup.Lookup(ip); err == nil {
+				if max, ok := config.MatchRegion(rule.RegionRules, loc); ok {
+					maxAttempts = max
+				}
+			}
+		}
+		key := banKey(rule, ip, user)
 		st.Hits[key] = appendRecent(st.Hits[key], now, rule.FindTime.Duration)
-		if len(st.Hits[key]) < rule.MaxAttempts {
+		if len(st.Hits[key]) < maxAttempts {
 			continue
 		}
 		if until, banned := st.Bans[key]; banned && until.After(now) {
@@ -188,6 +202,13 @@ func scanLines(ctx context.Context, cfg config.Config, rule config.Rule, dispatc
 	return nil
 }
 
+func banKey(rule config.Rule, ip, user string) string {
+	if rule.CountByUser && user != "" {
+		return rule.Name + "|" + ip + "|" + user
+	}
+	return rule.Name + "|" + ip
+}
+
 func compilePatterns(patterns []string) ([]*regexp.Regexp, error) {
 	var out []*regexp.Regexp
 	for _, pattern := range patterns {
@@ -200,22 +221,31 @@ func compilePatterns(patterns []string) ([]*regexp.Regexp, error) {
 	return out, nil
 }
 
-func matchIP(matchers []*regexp.Regexp, line string) string {
+func matchIPUser(matchers []*regexp.Regexp, line string) (ip, user string) {
 	for _, re := range matchers {
 		m := re.FindStringSubmatch(line)
 		if len(m) == 0 {
 			continue
 		}
 		for i, name := range re.SubexpNames() {
-			if name == "ip" && i < len(m) {
-				return m[i]
+			if i >= len(m) {
+				continue
+			}
+			switch name {
+			case "ip":
+				ip = m[i]
+			case "user":
+				user = m[i]
 			}
 		}
+		if ip != "" {
+			return ip, user
+		}
 		if len(m) > 1 {
-			return m[1]
+			return m[1], user
 		}
 	}
-	return ""
+	return "", ""
 }
 
 func appendRecent(items []time.Time, now time.Time, window time.Duration) []time.Time {

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/neko233-com/banhack233/internal/geoip"
 )
 
 func TestIsIgnoredIP(t *testing.T) {
@@ -60,5 +62,42 @@ func TestNormalizeRejectsInvalidWhitelist(t *testing.T) {
 	cfg.IgnoreIPs = []string{"192.0.2.1/99"}
 	if err := cfg.Normalize(); err == nil {
 		t.Fatal("invalid CIDR accepted")
+	}
+}
+
+func TestMatchRegion(t *testing.T) {
+	rules := &RegionRules{MaxAttempts: map[string]int{"广州": 100, "Guangzhou": 100}}
+	if max, ok := MatchRegion(rules, geoip.Location{Country: "中国", Region: "广东省", City: "广州市"}); !ok || max != 100 {
+		t.Fatalf("max=%d ok=%v", max, ok)
+	}
+	if max, ok := MatchRegion(rules, geoip.Location{Country: "China", Region: "Guangdong", City: "Guangzhou"}); !ok || max != 100 {
+		t.Fatalf("max=%d ok=%v", max, ok)
+	}
+	if _, ok := MatchRegion(rules, geoip.Location{Country: "中国", Region: "北京市", City: "北京市"}); ok {
+		t.Fatal("unexpected region match")
+	}
+	if _, ok := MatchRegion(nil, geoip.Location{City: "广州市"}); ok {
+		t.Fatal("nil rules matched")
+	}
+}
+
+func TestNormalizeRegionRules(t *testing.T) {
+	cfg := Default()
+	cfg.Rules[0].RegionRules = &RegionRules{MaxAttempts: map[string]int{" 广州 ": 100, "": 1, "上海": 0}}
+	if err := cfg.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Rules[0].RegionRules.MaxAttempts["广州"]; got != 100 {
+		t.Fatalf("广州=%d", got)
+	}
+	if len(cfg.Rules[0].RegionRules.MaxAttempts) != 1 {
+		t.Fatalf("rules=%v", cfg.Rules[0].RegionRules.MaxAttempts)
+	}
+	cfg.Rules[0].RegionRules = &RegionRules{MaxAttempts: map[string]int{"": 1}}
+	if err := cfg.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Rules[0].RegionRules != nil {
+		t.Fatal("empty region rules should be dropped")
 	}
 }

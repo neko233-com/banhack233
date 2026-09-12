@@ -173,16 +173,42 @@ func TestDefaultRuleCountsOnlyPasswordFailures(t *testing.T) {
 		"Failed publickey for root from 192.0.2.3 port 12345 ssh2",
 		"Connection closed by 192.0.2.3 port 12345 [preauth]",
 	} {
-		if ip := matchIP(matchers, line); ip != "" {
+		if ip, _ := matchIPUser(matchers, line); ip != "" {
 			t.Errorf("unexpected failure: %s", line)
 		}
 	}
-	for _, line := range []string{
-		"Failed password for root from 192.0.2.3 port 12345 ssh2",
-		"Failed password for invalid user admin from 192.0.2.3 port 12345 ssh2",
+	for _, tc := range []struct {
+		line string
+		user string
+	}{
+		{"Failed password for root from 192.0.2.3 port 12345 ssh2", "root"},
+		{"Failed password for invalid user admin from 192.0.2.3 port 12345 ssh2", "admin"},
 	} {
-		if ip := matchIP(matchers, line); ip != "192.0.2.3" {
-			t.Errorf("missed password failure: %s", line)
+		ip, user := matchIPUser(matchers, tc.line)
+		if ip != "192.0.2.3" || user != tc.user {
+			t.Errorf("missed password failure: %s ip=%q user=%q", tc.line, ip, user)
 		}
+	}
+}
+
+func TestBanKeyCountsByUser(t *testing.T) {
+	rule := config.Rule{Name: "ssh", CountByUser: true}
+	if got := banKey(rule, "192.0.2.3", "root"); got != "ssh|192.0.2.3|root" {
+		t.Fatalf("banKey=%q", got)
+	}
+	rule.CountByUser = false
+	if got := banKey(rule, "192.0.2.3", "root"); got != "ssh|192.0.2.3" {
+		t.Fatalf("banKey=%q", got)
+	}
+}
+
+func TestSplitBanKey(t *testing.T) {
+	rule, ip, ok := splitBanKey("ssh|192.0.2.3|root")
+	if !ok || rule != "ssh" || ip != "192.0.2.3" {
+		t.Fatalf("rule=%q ip=%q ok=%v", rule, ip, ok)
+	}
+	rule, ip, ok = splitBanKey("ssh|192.0.2.3")
+	if !ok || rule != "ssh" || ip != "192.0.2.3" {
+		t.Fatalf("rule=%q ip=%q ok=%v", rule, ip, ok)
 	}
 }

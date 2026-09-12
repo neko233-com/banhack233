@@ -434,12 +434,19 @@ banhack233 notify-test -message "自定义测试内容"
       "name": "ssh-auth-failure",
       "log_paths": ["/var/log/auth.log", "/var/log/secure"],
       "patterns": [
-        "Failed password.*from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)"
+        "Failed password for(?: invalid user)? (?P<user>\\S+) from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)"
       ],
       "max_attempts": 5,
       "find_time": "10m",
       "ban_time": "1h",
-      "action": "auto"
+      "action": "auto",
+      "count_by_user": true,
+      "region_rules": {
+        "max_attempts": {
+          "广州": 100,
+          "Guangzhou": 100
+        }
+      }
     }
   ],
   "malware": {
@@ -466,6 +473,8 @@ banhack233 notify-test -message "自定义测试内容"
 | `find_time` | 检测时间窗口 |
 | `ban_time` | 自动封禁时长，到期在下一轮扫描解封；`notify` 模式为告警冷却时间 |
 | `action` | `auto` 自动封 IP、`notify` 仅告警，或自定义命令 |
+| `count_by_user` | `true` 时按 IP+用户名 计数；需 patterns 含 `(?P<user>...)`。降低共享出口 IP 误封 |
+| `region_rules.max_attempts` | 按 GeoIP 地区覆盖阈值；key 匹配 Country/Region/City，支持中英文（`广州`/`Guangzhou`） |
 | `malware.enabled` | 是否在 doctor/定时审计中加入恶意程序巡检 |
 | `malware.direct_kill` | 是否自动直接 kill 可疑进程，默认 false |
 | `malware.report_dir` | 报告目录 |

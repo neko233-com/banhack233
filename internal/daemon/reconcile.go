@@ -20,12 +20,13 @@ func reconcileBans(cfg config.Config, st *state, now time.Time, remove func(stri
 	var releases []entry
 	active := map[string]bool{}
 	for key, until := range st.Bans {
-		idx := strings.LastIndex(key, "|")
-		if idx < 0 {
+		ruleName, ip, ok := splitBanKey(key)
+		if !ok {
+			delete(st.Bans, key)
+			delete(st.BanActions, key)
 			continue
 		}
-		ip := key[idx+1:]
-		rule, exists := rules[key[:idx]]
+		rule, exists := rules[ruleName]
 		backend := st.BanActions[key]
 		if backend == "" {
 			// Pre-upgrade state did not record the firewall backend.
@@ -74,19 +75,20 @@ func reconcileBans(cfg config.Config, st *state, now time.Time, remove func(stri
 		delete(st.Hits, item.key)
 	}
 	for key, until := range st.Cooldowns {
-		idx := strings.LastIndex(key, "|")
-		if idx >= 0 && (!until.After(now) || config.IsIgnoredIP(cfg.IgnoreIPs, key[idx+1:])) {
+		_, ip, ok := splitBanKey(key)
+		if ok && (!until.After(now) || config.IsIgnoredIP(cfg.IgnoreIPs, ip)) {
 			delete(st.Cooldowns, key)
 			delete(st.Hits, key)
 		}
 	}
 	for key, hits := range st.Hits {
-		idx := strings.LastIndex(key, "|")
-		if idx < 0 {
+		ruleName, ip, ok := splitBanKey(key)
+		if !ok {
+			delete(st.Hits, key)
 			continue
 		}
-		rule, exists := rules[key[:idx]]
-		if !exists || config.IsIgnoredIP(cfg.IgnoreIPs, key[idx+1:]) {
+		rule, exists := rules[ruleName]
+		if !exists || config.IsIgnoredIP(cfg.IgnoreIPs, ip) {
 			delete(st.Hits, key)
 			continue
 		}
@@ -103,4 +105,13 @@ func reconcileBans(cfg config.Config, st *state, now time.Time, remove func(stri
 		}
 	}
 	return result
+}
+
+// splitBanKey parses "rule|ip" or "rule|ip|user" state keys.
+func splitBanKey(key string) (rule, ip string, ok bool) {
+	parts := strings.Split(key, "|")
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
 }
