@@ -66,7 +66,7 @@ func auditLinuxSSH(cfg config.Config) []Finding {
 	ssh := cfg.Hardening.SSH
 	var out []Finding
 	if ssh.PasswordAuthentication {
-		out = append(out, Finding{Level: "info", Message: "SSH password login enabled by policy", Fix: "Use strong password, low MaxAuthTries, fail2ban automation, and alerts."})
+		out = append(out, Finding{Level: "info", Message: "SSH password login enabled by policy", Fix: "Use strong password, low MaxAuthTries, banhack233 automation, and alerts."})
 	}
 	if get(values, "PermitRootLogin") != strings.ToLower(ssh.PermitRootLogin) {
 		out = append(out, Finding{Level: "medium", Message: "SSH PermitRootLogin differs from config", Fix: "Run secure-ssh only after confirming current session safety."})

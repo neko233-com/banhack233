@@ -64,6 +64,7 @@ Password SSH login and root password login are supported use cases. The default 
 11. Optional remediation: `direct_kill=true` directly kills suspicious processes.
 12. Autostart: Linux systemd, macOS launchd, Windows schtasks.
 13. Safe defaults: `dry_run=true`, `start_at_end=true`, `ignore_ips` whitelist, `direct_kill=false`.
+14. fail2ban normal-mode parity: password failures, invalid-user publickey failures, max-auth-exceeded, `Invalid user`, `ROOT LOGIN REFUSED`, and `Auth fail` disconnects all count; a successful login (`reset_patterns`) clears the IP failure counter.
 
 ## Can It Be Antivirus?
 
@@ -332,7 +333,15 @@ If Fail2ban, SSHGuard, cloud firewalls, or SSH connection rate limits also run, 
       "name": "ssh-auth-failure",
       "log_paths": ["/var/log/auth.log", "/var/log/secure"],
       "patterns": [
-        "Failed password for(?: invalid user)? (?P<user>\\S+) from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)"
+        "Failed password for(?: invalid user)? (?P<user>\\S+) from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)",
+        "Failed publickey for invalid user (?P<user>\\S+) from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)",
+        "maximum authentication attempts exceeded for (?P<user>\\S+) from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)",
+        "Invalid user (?P<user>\\S+) from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)",
+        "ROOT LOGIN REFUSED FROM (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)",
+        "Received disconnect from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+) port \\d+:3: Auth fail"
+      ],
+      "reset_patterns": [
+        "Accepted (?:password|publickey|keyboard-interactive) for (?P<user>\\S+) from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)"
       ],
       "max_attempts": 5,
       "find_time": "10m",
@@ -368,6 +377,8 @@ Important fields:
 | `ban_time` | Automatic ban duration; removal on the next scan after expiry; alert cooldown in `notify` mode |
 | `action` | `auto` blocks IPs; `notify` only alerts; or a custom command |
 | `count_by_user` | When `true`, count failures per IP+user; requires `(?P<user>...)` in patterns. Reduces false bans on shared egress IPs |
+| `patterns` | Failure regex list with named groups `(?P<ip>...)`/`(?P<user>...)`; defaults align with fail2ban normal mode |
+| `reset_patterns` | Successful-login regex; clears all failure counters for that IP (fail2ban MLFGAINED semantics) so legit users are not penalized by historical failures |
 | `region_rules.max_attempts` | Override threshold by GeoIP Country/Region/City; keys support Chinese/English (`广州`/`Guangzhou`) |
 | `malware.enabled` | Include malware checks in doctor/hourly audit |
 | `malware.direct_kill` | Directly kill suspicious processes, default false |

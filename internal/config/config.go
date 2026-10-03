@@ -43,8 +43,11 @@ type Rule struct {
 	BanTime     Duration `json:"ban_time"`
 	Action      string   `json:"action"`
 	// CountByUser: 按 IP+用户名 计失败次数，避免同一出口 IP 上多用户共享阈值导致误封。
-	CountByUser bool         `json:"count_by_user,omitempty"`
-	RegionRules *RegionRules `json:"region_rules,omitempty"`
+	CountByUser bool `json:"count_by_user,omitempty"`
+	// ResetPatterns: 命中后清零该 IP 的全部失败计数（成功登录），
+	// 对应 fail2ban 的 MLFGAINED 语义，避免正常登录者被历史失败连坐。
+	ResetPatterns []string     `json:"reset_patterns,omitempty"`
+	RegionRules   *RegionRules `json:"region_rules,omitempty"`
 }
 
 // RegionRules 按 GeoIP 地区覆盖 max_attempts。
@@ -171,9 +174,22 @@ func Default() Config {
 		IgnoreIPs:     []string{"127.0.0.1", "::1"},
 		Rules: []Rule{
 			{
-				Name:        "ssh-auth-failure",
-				LogPaths:    defaultAuthLogs(),
-				Patterns:    []string{`Failed password for(?: invalid user)? (?P<user>\S+) from (?P<ip>\d+\.\d+\.\d+\.\d+)`},
+				Name: "ssh-auth-failure",
+				LogPaths: defaultAuthLogs(),
+				// 与 fail2ban normal 模式对齐：覆盖密码/无效用户公钥/超限认证/
+				// 裸 Invalid user/ROOT LOGIN REFUSED/Auth fail 断开等真实认证失败。
+				Patterns: []string{
+					`Failed password for(?: invalid user)? (?P<user>\S+) from (?P<ip>\d+\.\d+\.\d+\.\d+)`,
+					`Failed publickey for invalid user (?P<user>\S+) from (?P<ip>\d+\.\d+\.\d+\.\d+)`,
+					`maximum authentication attempts exceeded for (?P<user>\S+) from (?P<ip>\d+\.\d+\.\d+\.\d+)`,
+					`Invalid user (?P<user>\S+) from (?P<ip>\d+\.\d+\.\d+\.\d+)`,
+					`ROOT LOGIN REFUSED FROM (?P<ip>\d+\.\d+\.\d+\.\d+)`,
+					`Received disconnect from (?P<ip>\d+\.\d+\.\d+\.\d+) port \d+:3: Auth fail`,
+				},
+				// 成功登录清零该 IP 的失败计数（fail2ban MLFGAINED 对应语义）。
+				ResetPatterns: []string{
+					`Accepted (?:password|publickey|keyboard-interactive) for (?P<user>\S+) from (?P<ip>\d+\.\d+\.\d+\.\d+)`,
+				},
 				MaxAttempts: 5,
 				FindTime:    Duration{10 * time.Minute},
 				BanTime:     Duration{1 * time.Hour},

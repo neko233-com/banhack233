@@ -147,7 +147,18 @@ func scanLines(ctx context.Context, cfg config.Config, rule config.Rule, dispatc
 	if err != nil {
 		return err
 	}
+	resetMatchers, err := compilePatterns(rule.ResetPatterns)
+	if err != nil {
+		return err
+	}
 	for _, line := range lines {
+		// 成功登录（reset_patterns）优先：清零该 IP 的失败计数后跳过失败匹配。
+		if resetIP, _ := matchIPUser(resetMatchers, line); resetIP != "" {
+			if !config.IsIgnoredIP(cfg.IgnoreIPs, resetIP) {
+				clearHits(st, rule, resetIP)
+			}
+			continue
+		}
 		ip, user := matchIPUser(matchers, line)
 		if ip == "" {
 			continue
@@ -207,6 +218,16 @@ func banKey(rule config.Rule, ip, user string) string {
 		return rule.Name + "|" + ip + "|" + user
 	}
 	return rule.Name + "|" + ip
+}
+
+// clearHits 删除某 IP 在该规则下的全部失败计数（含 count_by_user 的各用户键）。
+func clearHits(st *state, rule config.Rule, ip string) {
+	prefix := rule.Name + "|" + ip
+	for key := range st.Hits {
+		if key == prefix || strings.HasPrefix(key, prefix+"|") {
+			delete(st.Hits, key)
+		}
+	}
 }
 
 func compilePatterns(patterns []string) ([]*regexp.Regexp, error) {

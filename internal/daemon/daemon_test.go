@@ -161,33 +161,139 @@ func TestNotifyOnlyAndWhitelistAcrossScans(t *testing.T) {
 	}
 }
 
-func TestDefaultRuleCountsOnlyPasswordFailures(t *testing.T) {
+func TestDefaultRuleMatchesFail2banNormalMode(t *testing.T) {
 	matchers, err := compilePatterns(config.Default().Rules[0].Patterns)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 计入：fail2ban normal 模式同样计数的真实认证失败事件。
+	for _, tc := range []struct{ line, user string }{
+		{"Failed password for root from 192.0.2.3 port 12345 ssh2", "root"},
+		{"Failed password for invalid user admin from 192.0.2.3 port 12345 ssh2", "admin"},
+		{"Failed publickey for invalid user admin from 192.0.2.3 port 12345 ssh2", "admin"},
+		{"error: maximum authentication attempts exceeded for root from 192.0.2.3 port 12345 ssh2 [preauth]", "root"},
+		{"Invalid user admin from 192.0.2.3 port 12345", "admin"},
+		{"ROOT LOGIN REFUSED FROM 192.0.2.3", ""},
+		{"Received disconnect from 192.0.2.3 port 54321:3: Auth fail", ""},
+	} {
+		ip, user := matchIPUser(matchers, tc.line)
+		if ip != "192.0.2.3" || user != tc.user {
+			t.Errorf("missed failure: %s ip=%q user=%q want user=%q", tc.line, ip, user, tc.user)
+		}
+	}
+	// 不计入：正常登录、断开、有效用户公钥失败、握手层事件（防误封底线）。
 	for _, line := range []string{
-		"Invalid user admin from 192.0.2.3 port 12345",
 		"Accepted password for root from 192.0.2.3 port 12345 ssh2",
 		"Accepted publickey for root from 192.0.2.3 port 12345 ssh2",
 		"Failed publickey for root from 192.0.2.3 port 12345 ssh2",
+		"Connection closed by authenticating user root 192.0.2.3 port 12345 [preauth]",
 		"Connection closed by 192.0.2.3 port 12345 [preauth]",
+		"kex_exchange_identification: Connection closed by remote host",
+		"Did not receive identification string from 192.0.2.3",
 	} {
 		if ip, _ := matchIPUser(matchers, line); ip != "" {
 			t.Errorf("unexpected failure: %s", line)
 		}
 	}
-	for _, tc := range []struct {
-		line string
-		user string
-	}{
-		{"Failed password for root from 192.0.2.3 port 12345 ssh2", "root"},
-		{"Failed password for invalid user admin from 192.0.2.3 port 12345 ssh2", "admin"},
+	// reset_patterns 必须命中成功登录。
+	resets, err := compilePatterns(config.Default().Rules[0].ResetPatterns)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range []string{
+		"Accepted password for root from 192.0.2.3 port 12345 ssh2",
+		"Accepted publickey for root from 192.0.2.3 port 12345 ssh2",
+		"Accepted keyboard-interactive for root from 192.0.2.3 port 12345 ssh2",
 	} {
-		ip, user := matchIPUser(matchers, tc.line)
-		if ip != "192.0.2.3" || user != tc.user {
-			t.Errorf("missed password failure: %s ip=%q user=%q", tc.line, ip, user)
+		if ip, _ := matchIPUser(resets, line); ip != "192.0.2.3" {
+			t.Errorf("reset pattern missed: %s", line)
 		}
+	}
+	for _, line := range []string{
+		"Failed password for root from 192.0.2.3 port 12345 ssh2",
+		"Connection closed by 192.0.2.3 port 12345 [preauth]",
+	} {
+		if ip, _ := matchIPUser(resets, line); ip != "" {
+			t.Errorf("reset pattern false positive: %s", line)
+		}
+	}
+}
+
+func TestAcceptedLoginResetsFailureCount(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "auth.log")
+	statePath := filepath.Join(dir, "state.json")
+	cfg := config.Config{
+		Interval:      config.Duration{Duration: time.Second},
+		AuditInterval: config.Duration{Duration: time.Hour},
+		StatePath:     statePath,
+		DryRun:        true,
+		StartAtEnd:    false,
+		Rules: []config.Rule{{
+			Name:          "ssh",
+			LogPaths:      []string{logPath},
+			Patterns:      []string{`from (?P<ip>\d+\.\d+\.\d+\.\d+)`},
+			ResetPatterns: []string{`Accepted \w+ for (?P<user>\S+) from (?P<ip>\d+\.\d+\.\d+\.\d+)`},
+			MaxAttempts:   3,
+			FindTime:      config.Duration{Duration: time.Minute},
+			BanTime:       config.Duration{Duration: time.Hour},
+			Action:        "auto",
+		}},
+		Notifications: config.NotificationSet{Console: false},
+	}
+	writeLog := func(content string) {
+		if err := os.WriteFile(logPath, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	appendLog := func(content string) {
+		f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		if _, err := f.WriteString(content); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runAndLoad := func() state {
+		if err := RunOnce(context.Background(), cfg); err != nil {
+			t.Fatal(err)
+		}
+		st, err := loadState(statePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+	fails := "Failed password for root from 192.0.2.3 port 22 ssh2\n"
+
+	// 阶段1：2 次失败（阈值 3），只计数不封禁。日志必须追加写入（守护进程按 offset 只读新增尾部）。
+	writeLog(fails + fails)
+	st := runAndLoad()
+	if len(st.Hits) != 1 || len(st.Hits["ssh|192.0.2.3"]) != 2 || len(st.Bans) != 0 {
+		t.Fatalf("phase1 hits=%v bans=%d want 2 timestamps, 0 bans", st.Hits, len(st.Bans))
+	}
+
+	// 阶段2：成功登录清零该 IP 计数。
+	appendLog("Accepted password for root from 192.0.2.3 port 22 ssh2\n")
+	st = runAndLoad()
+	if len(st.Hits) != 0 {
+		t.Fatalf("phase2 hits=%v want empty after accepted login", st.Hits)
+	}
+
+	// 阶段3：再 2 次失败 —— 计数应只有这 2 条（未清零则累计 4 条，会触发阈值）。
+	appendLog(fails + fails)
+	st = runAndLoad()
+	if len(st.Hits) != 1 || len(st.Hits["ssh|192.0.2.3"]) != 2 || len(st.Bans) != 0 || len(st.Cooldowns) != 0 {
+		t.Fatalf("phase3 hits=%v bans=%d cooldowns=%d want fresh 2, no ban (reset must clear)", st.Hits, len(st.Bans), len(st.Cooldowns))
+	}
+
+	// 阶段4：第 3 条新失败达到阈值。
+	appendLog(fails)
+	st = runAndLoad()
+	if len(st.Cooldowns) != 1 {
+		t.Fatalf("phase4 cooldowns=%d want 1 after reaching threshold", len(st.Cooldowns))
 	}
 }
 

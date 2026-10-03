@@ -145,6 +145,7 @@ func main() {
 			"name":        "ssh",
 			"log_paths":   []string{logPath},
 			"patterns":    []string{`from (?P<ip>\d+\.\d+\.\d+\.\d+)`},
+			"reset_patterns": []string{`Accepted \w+ for (?P<user>\S+) from (?P<ip>\d+\.\d+\.\d+\.\d+)`},
 			"max_attempts": 5,
 			"find_time":    "10m",
 			"ban_time":     "1h",
@@ -269,5 +270,30 @@ func main() {
 	mustf(len(nested(st, "bans")) == 0, "legacy expired bans remain: %v", st["bans"])
 	fmt.Println("PASS dry_run preserves firewall; production releases legacy expired bans")
 
-	fmt.Println("ALL 8 LINUX INTEGRATION CHECKS PASSED")
+	// 9. 成功登录清零失败计数（fail2ban MLFGAINED 对应语义）。
+	appendFails("203.0.113.13", 3)
+	scan()
+	st = loadState()
+	mustf(nested(st, "hits")["ssh|203.0.113.13"] != nil, "hits before reset = %v", st["hits"])
+	af, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	must(err)
+	_, err = af.WriteString("Accepted password for root from 203.0.113.13 port 22 ssh2\n")
+	must(err)
+	must(af.Close())
+	scan()
+	st = loadState()
+	mustf(nested(st, "hits")["ssh|203.0.113.13"] == nil, "hits after accepted login = %v", st["hits"])
+	appendFails("203.0.113.13", 5)
+	scan()
+	expectBlocked("203.0.113.13")
+	st = loadState()
+	nested(st, "bans")["ssh|203.0.113.13"] = "2000-01-01T00:00:00Z"
+	saveState(st)
+	scan()
+	expectBlocked()
+	st = loadState()
+	mustf(len(nested(st, "bans")) == 0, "final bans = %v", st["bans"])
+	fmt.Println("PASS accepted login resets failure counter")
+
+	fmt.Println("ALL 9 LINUX INTEGRATION CHECKS PASSED")
 }

@@ -60,6 +60,7 @@ English docs: [README-EN.md](README-EN.md)
 11. 可选自动处置：`direct_kill=true` 后直接 kill 可疑进程。
 12. 开机自启动：Linux systemd、macOS launchd、Windows schtasks。
 13. 安全默认值：`dry_run=true`、`start_at_end=true`、`ignore_ips` 白名单、`direct_kill=false`。
+14. 防爆破覆盖与 fail2ban normal 模式对齐：密码失败、无效用户公钥失败、认证超限、`Invalid user`、`ROOT LOGIN REFUSED`、`Auth fail` 断开均计数；成功登录（`reset_patterns`）自动清零该 IP 失败计数。
 
 ## 是否能作为杀毒软件
 
@@ -450,7 +451,15 @@ banhack233 notify-test -message "自定义测试内容"
       "name": "ssh-auth-failure",
       "log_paths": ["/var/log/auth.log", "/var/log/secure"],
       "patterns": [
-        "Failed password for(?: invalid user)? (?P<user>\\S+) from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)"
+        "Failed password for(?: invalid user)? (?P<user>\\S+) from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)",
+        "Failed publickey for invalid user (?P<user>\\S+) from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)",
+        "maximum authentication attempts exceeded for (?P<user>\\S+) from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)",
+        "Invalid user (?P<user>\\S+) from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)",
+        "ROOT LOGIN REFUSED FROM (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)",
+        "Received disconnect from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+) port \\d+:3: Auth fail"
+      ],
+      "reset_patterns": [
+        "Accepted (?:password|publickey|keyboard-interactive) for (?P<user>\\S+) from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)"
       ],
       "max_attempts": 5,
       "find_time": "10m",
@@ -490,6 +499,8 @@ banhack233 notify-test -message "自定义测试内容"
 | `ban_time` | 自动封禁时长，到期在下一轮扫描解封；`notify` 模式为告警冷却时间 |
 | `action` | `auto` 自动封 IP、`notify` 仅告警，或自定义命令 |
 | `count_by_user` | `true` 时按 IP+用户名 计数；需 patterns 含 `(?P<user>...)`。降低共享出口 IP 误封 |
+| `patterns` | 失败日志正则列表，命名组 `(?P<ip>...)`/`(?P<user>...)`；默认集合与 fail2ban normal 模式对齐 |
+| `reset_patterns` | 成功登录正则；命中后清零该 IP 全部失败计数（fail2ban MLFGAINED 对应语义），防正常登录被历史失败连坐 |
 | `region_rules.max_attempts` | 按 GeoIP 地区覆盖阈值；key 匹配 Country/Region/City，支持中英文（`广州`/`Guangzhou`） |
 | `malware.enabled` | 是否在 doctor/定时审计中加入恶意程序巡检 |
 | `malware.direct_kill` | 是否自动直接 kill 可疑进程，默认 false |
