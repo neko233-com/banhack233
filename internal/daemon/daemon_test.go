@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -195,6 +196,18 @@ func TestDefaultRuleMatchesFail2banNormalMode(t *testing.T) {
 			t.Errorf("unexpected failure: %s", line)
 		}
 	}
+	// <HOST> 宏：IPv6 同样计数（双栈攻击者不留盲区）。
+	for _, tc := range []struct{ line, user string }{
+		{"Failed password for root from 2001:db8::1 port 22 ssh2", "root"},
+		{"Failed password for invalid user admin from 2001:db8::dead:beef port 22 ssh2", "admin"},
+		{"Invalid user admin from fd00::1 port 22", "admin"},
+		{"error: maximum authentication attempts exceeded for root from 2001:db8::1 port 22 ssh2 [preauth]", "root"},
+	} {
+		ip, user := matchIPUser(matchers, tc.line)
+		if !strings.Contains(ip, ":") || user != tc.user {
+			t.Errorf("ipv6 miss: %s ip=%q user=%q", tc.line, ip, user)
+		}
+	}
 	// reset_patterns 必须命中成功登录。
 	resets, err := compilePatterns(config.Default().Rules[0].ResetPatterns)
 	if err != nil {
@@ -204,8 +217,9 @@ func TestDefaultRuleMatchesFail2banNormalMode(t *testing.T) {
 		"Accepted password for root from 192.0.2.3 port 12345 ssh2",
 		"Accepted publickey for root from 192.0.2.3 port 12345 ssh2",
 		"Accepted keyboard-interactive for root from 192.0.2.3 port 12345 ssh2",
+		"Accepted publickey for root from 2001:db8::1 port 12345 ssh2",
 	} {
-		if ip, _ := matchIPUser(resets, line); ip != "192.0.2.3" {
+		if ip, _ := matchIPUser(resets, line); ip == "" {
 			t.Errorf("reset pattern missed: %s", line)
 		}
 	}
@@ -216,6 +230,49 @@ func TestDefaultRuleMatchesFail2banNormalMode(t *testing.T) {
 		if ip, _ := matchIPUser(resets, line); ip != "" {
 			t.Errorf("reset pattern false positive: %s", line)
 		}
+	}
+}
+
+// TestInvalidIPLinesAreSkipped：半截/伪 IP 日志不得打断扫描，也不得计数。
+func TestInvalidIPLinesAreSkipped(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "auth.log")
+	statePath := filepath.Join(dir, "state.json")
+	content := "Failed password for root from not-an-ip port 22 ssh2\n" +
+		"Failed password for root from 1.2.3.4.5 port 22 ssh2\n" +
+		"Failed password for root from 192.0.2.9 port 22 ssh2\n"
+	if err := os.WriteFile(logPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{
+		Interval:      config.Duration{Duration: time.Second},
+		AuditInterval: config.Duration{Duration: time.Hour},
+		StatePath:     statePath,
+		DryRun:        true,
+		StartAtEnd:    false,
+		Rules: []config.Rule{{
+			Name:        "ssh",
+			LogPaths:    []string{logPath},
+			Patterns:    []string{`from (?P<ip>\S+)`},
+			MaxAttempts: 1,
+			FindTime:    config.Duration{Duration: time.Minute},
+			BanTime:     config.Duration{Duration: time.Hour},
+			Action:      "auto",
+		}},
+		Notifications: config.NotificationSet{Console: false},
+	}
+	if err := RunOnce(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	st, err := loadState(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Hits) != 1 || len(st.Bans) != 0 || len(st.Cooldowns) != 1 {
+		t.Fatalf("hits=%v bans=%d cooldowns=%d want only the valid IP counted", st.Hits, len(st.Bans), len(st.Cooldowns))
+	}
+	if _, ok := st.Hits["ssh|192.0.2.9"]; !ok {
+		t.Fatalf("valid IP not counted: %v", st.Hits)
 	}
 }
 

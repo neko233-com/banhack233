@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"regexp"
 	"strings"
@@ -17,6 +18,11 @@ import (
 	"github.com/neko233-com/banhack233/internal/geoip"
 	"github.com/neko233-com/banhack233/internal/notify"
 )
+
+// hostMacro 是 fail2ban 风格的 <HOST> 宏：展开为带 (?P<ip>...) 命名组的
+// IPv4|IPv6 字面地址（fail2ban 写法 `from <HOST>` 可直接使用）。
+// 同一条 pattern 内只应出现一次 <HOST>（重复命名组会导致编译失败）。
+const hostMacro = `(?P<ip>(?:(?:\d{1,3}\.){3}\d{1,3}|(?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}))`
 
 func Run(ctx context.Context, cfg config.Config) error {
 	dispatcher := notify.NewDispatcher(cfg.Notifications, cfg.GeoIP)
@@ -163,6 +169,10 @@ func scanLines(ctx context.Context, cfg config.Config, rule config.Rule, dispatc
 		if ip == "" {
 			continue
 		}
+		// 半截匹配/伪 IP 行直接跳过，绝不让一条坏日志打断整轮扫描。
+		if _, err := netip.ParseAddr(ip); err != nil {
+			continue
+		}
 		if config.IsIgnoredIP(cfg.IgnoreIPs, ip) {
 			continue
 		}
@@ -233,7 +243,7 @@ func clearHits(st *state, rule config.Rule, ip string) {
 func compilePatterns(patterns []string) ([]*regexp.Regexp, error) {
 	var out []*regexp.Regexp
 	for _, pattern := range patterns {
-		re, err := regexp.Compile(pattern)
+		re, err := regexp.Compile(strings.ReplaceAll(pattern, "<HOST>", hostMacro))
 		if err != nil {
 			return nil, err
 		}

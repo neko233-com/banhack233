@@ -54,34 +54,43 @@ func writeJSON(path string, v any) {
 	must(os.WriteFile(path, b, 0o644))
 }
 
-// blocked 返回 nft set inet banhack233 blocked 中的全部 IP。
+// blocked 返回 nft 两个 set（v4+v6）中的全部 IP。
 func blocked() map[string]bool {
-	out := run("nft", "-j", "list", "set", "inet", "banhack233", "blocked")
-	var doc struct {
-		Nftables []map[string]json.RawMessage `json:"nftables"`
-	}
-	must(json.Unmarshal([]byte(out), &doc))
 	got := map[string]bool{}
-	for _, item := range doc.Nftables {
-		raw, ok := item["set"]
-		if !ok {
+	for _, set := range []string{"blocked", "blocked6"} {
+		out, err := exec.Command("nft", "-j", "list", "set", "inet", "banhack233", set).CombinedOutput()
+		if err != nil && strings.Contains(string(out), "No such") {
 			continue
 		}
-		var set struct {
-			Elem []json.RawMessage `json:"elem"`
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "FAIL nft list set %s: %s\n", set, out)
+			os.Exit(1)
 		}
-		must(json.Unmarshal(raw, &set))
-		for _, e := range set.Elem {
-			var ip string
-			if err := json.Unmarshal(e, &ip); err == nil {
-				got[ip] = true
+		var doc struct {
+			Nftables []map[string]json.RawMessage `json:"nftables"`
+		}
+		must(json.Unmarshal(out, &doc))
+		for _, item := range doc.Nftables {
+			raw, ok := item["set"]
+			if !ok {
 				continue
 			}
-			var obj struct {
-				Addr string `json:"addr"`
+			var setDoc struct {
+				Elem []json.RawMessage `json:"elem"`
 			}
-			if err := json.Unmarshal(e, &obj); err == nil && obj.Addr != "" {
-				got[obj.Addr] = true
+			must(json.Unmarshal(raw, &setDoc))
+			for _, e := range setDoc.Elem {
+				var ip string
+				if err := json.Unmarshal(e, &ip); err == nil {
+					got[ip] = true
+					continue
+				}
+				var obj struct {
+					Addr string `json:"addr"`
+				}
+				if err := json.Unmarshal(e, &obj); err == nil && obj.Addr != "" {
+					got[obj.Addr] = true
+				}
 			}
 		}
 	}
@@ -142,14 +151,14 @@ func main() {
 		"ignore_ips":    []string{"192.0.2.0/24"},
 		"audit_interval": "1h",
 		"rules": []any{map[string]any{
-			"name":        "ssh",
-			"log_paths":   []string{logPath},
-			"patterns":    []string{`from (?P<ip>\d+\.\d+\.\d+\.\d+)`},
-			"reset_patterns": []string{`Accepted \w+ for (?P<user>\S+) from (?P<ip>\d+\.\d+\.\d+\.\d+)`},
-			"max_attempts": 5,
-			"find_time":    "10m",
-			"ban_time":     "1h",
-			"action":       "auto",
+			"name":           "ssh",
+			"log_paths":      []string{logPath},
+			"patterns":       []string{`from <HOST>`},
+			"reset_patterns": []string{`Accepted \w+ for (?P<user>\S+) from <HOST>`},
+			"max_attempts":   5,
+			"find_time":      "10m",
+			"ban_time":       "1h",
+			"action":         "auto",
 		}},
 		"malware":       map[string]any{"enabled": false},
 		"geoip":         map[string]any{"enabled": false},
@@ -185,12 +194,14 @@ func main() {
 	mustf(len(nested(st, "hits")) == 1, "hits = %v", st["hits"])
 	fmt.Println("PASS CIDR whitelist bypass and real nft threshold ban")
 
-	// 2. 重复封禁不产生重复规则，且规则只匹配 SSH 端口。
+	// 2. 重复封禁不产生重复规则，且 v4/v6 规则都只匹配 SSH 端口。
 	appendFails("203.0.113.10", 5)
 	scan()
-	mustf(chainRuleCount() == 1, "chain rules = %d, want 1", chainRuleCount())
-	mustf(strings.Contains(chainRuleText(), "tcp dport 22"),
-		"ban rule is not scoped to ssh port:\n%s", chainRuleText())
+	mustf(chainRuleCount() == 2, "chain rules = %d, want 2 (v4+v6)", chainRuleCount())
+	mustf(strings.Contains(chainRuleText(), "ip saddr @blocked tcp dport 22"),
+		"v4 ban rule is not scoped to ssh port:\n%s", chainRuleText())
+	mustf(strings.Contains(chainRuleText(), "ip6 saddr @blocked6 tcp dport 22"),
+		"v6 ban rule is not scoped to ssh port:\n%s", chainRuleText())
 	fmt.Println("PASS repeated bans do not duplicate nft rules")
 
 	// 3. whitelist 命令同时解除防火墙与状态封禁。
@@ -295,5 +306,20 @@ func main() {
 	mustf(len(nested(st, "bans")) == 0, "final bans = %v", st["bans"])
 	fmt.Println("PASS accepted login resets failure counter")
 
-	fmt.Println("ALL 9 LINUX INTEGRATION CHECKS PASSED")
+	// 10. IPv6 失败同样入封，且 v6 规则仅限 SSH 端口。
+	appendFails("2001:db8::1", 5)
+	scan()
+	expectBlocked("2001:db8::1")
+	mustf(strings.Contains(chainRuleText(), "ip6 saddr @blocked6 tcp dport 22"),
+		"v6 rule missing after ipv6 ban:\n%s", chainRuleText())
+	st = loadState()
+	nested(st, "bans")["ssh|2001:db8::1"] = "2000-01-01T00:00:00Z"
+	saveState(st)
+	scan()
+	expectBlocked()
+	st = loadState()
+	mustf(len(nested(st, "bans")) == 0, "final bans = %v", st["bans"])
+	fmt.Println("PASS ipv6 failures ban with ssh-port scope")
+
+	fmt.Println("ALL 10 LINUX INTEGRATION CHECKS PASSED")
 }

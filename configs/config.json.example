@@ -10,15 +10,15 @@
       "name": "ssh-auth-failure",
       "log_paths": ["/var/log/auth.log", "/var/log/secure"],
       "patterns": [
-        "Failed password for(?: invalid user)? (?P<user>\\S+) from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)",
-        "Failed publickey for invalid user (?P<user>\\S+) from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)",
-        "maximum authentication attempts exceeded for (?P<user>\\S+) from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)",
-        "Invalid user (?P<user>\\S+) from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)",
-        "ROOT LOGIN REFUSED FROM (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)",
-        "Received disconnect from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+) port \\d+:3: Auth fail"
+        "Failed password for(?: invalid user)? (?P<user>\\S+) from <HOST>",
+        "Failed publickey for invalid user (?P<user>\\S+) from <HOST>",
+        "maximum authentication attempts exceeded for (?P<user>\\S+) from <HOST>",
+        "Invalid user (?P<user>\\S+) from <HOST>",
+        "ROOT LOGIN REFUSED FROM <HOST>",
+        "Received disconnect from <HOST> port \\d+:3: Auth fail"
       ],
       "reset_patterns": [
-        "Accepted (?:password|publickey|keyboard-interactive) for (?P<user>\\S+) from (?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)"
+        "Accepted (?:password|publickey|keyboard-interactive) for (?P<user>\\S+) from <HOST>"
       ],
       "max_attempts": 5,
       "find_time": "10m",
