@@ -38,6 +38,25 @@ func Unban(ip string) error {
 	return Remove(ip, "auto")
 }
 
+// deleteIPTRules 删除 INPUT 中匹配 ` -s ip <extra...>` 的全部规则（处理旧版本重复插入）。
+func deleteIPTRules(ip string, extra ...string) error {
+	spec := append([]string{"-s", ip}, extra...)
+	for {
+		args := append([]string{"-w", "5", "-C", "INPUT"}, spec...)
+		out, err := exec.Command("iptables", args...).CombinedOutput()
+		if exit, ok := err.(*exec.ExitError); ok && exit.ExitCode() == 1 {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("iptables check %s: %s: %w", ip, out, err)
+		}
+		del := append([]string{"-w", "5", "-D", "INPUT"}, spec...)
+		if err := exec.Command("iptables", del...).Run(); err != nil {
+			return err
+		}
+	}
+}
+
 // Remove is idempotent and uses the backend recorded when the ban was applied.
 func Remove(ip, backend string) error {
 	if _, err := netip.ParseAddr(ip); err != nil {
@@ -64,19 +83,11 @@ func Remove(ip, backend string) error {
 		}
 		return nil
 	case "iptables":
-		// Older versions could insert duplicate rules for the same IP.
-		for {
-			out, err := exec.Command("iptables", "-w", "5", "-C", "INPUT", "-s", ip, "-j", "DROP").CombinedOutput()
-			if exit, ok := err.(*exec.ExitError); ok && exit.ExitCode() == 1 {
-				return nil
-			}
-			if err != nil {
-				return fmt.Errorf("iptables check %s: %s: %w", ip, out, err)
-			}
-			if err := exec.Command("iptables", "-w", "5", "-D", "INPUT", "-s", ip, "-j", "DROP").Run(); err != nil {
-				return err
-			}
+		// 移除当前「仅 SSH 端口」规则，以及旧版本插入的全端口规则（可能重复）。
+		if err := deleteIPTRules(ip, "-p", "tcp", "--dport", "22", "-j", "DROP"); err != nil {
+			return err
 		}
+		return deleteIPTRules(ip, "-j", "DROP")
 	case "pf":
 		return exec.Command("pfctl", "-t", "banhack233", "-T", "delete", ip).Run()
 	case "netsh":

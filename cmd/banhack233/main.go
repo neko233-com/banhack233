@@ -49,6 +49,8 @@ func run(args []string) error {
 		return runStatus(args[1:])
 	case "secure-ssh":
 		return runSecureSSH(args[1:])
+	case "enable-production":
+		return runEnableProduction(args[1:])
 	case "keepalive":
 		return runKeepalive(args[1:])
 	case "ban-list":
@@ -287,6 +289,60 @@ func runInstallAutostart(args []string) error {
 	return autostart.Enable(*cfgPath)
 }
 
+// runEnableProduction 将配置切到生产模式（替代原 scripts 内嵌的 python 逻辑）：
+// 关闭 dry_run，启用 geoip/logging 与批量通知，保留其余字段不动。
+func runEnableProduction(args []string) error {
+	fs := flag.NewFlagSet("banhack233 enable-production", flag.ContinueOnError)
+	cfgPath := fs.String("config", config.DefaultPath(), "config file")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	b, err := os.ReadFile(*cfgPath)
+	if err != nil {
+		return err
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return fmt.Errorf("parse config %s: %w", *cfgPath, err)
+	}
+	def := config.Default()
+	doc["dry_run"] = false
+	doc["geoip"] = map[string]any{
+		"enabled": def.GeoIP.Enabled,
+		"db_path": def.GeoIP.DBPath,
+	}
+	doc["logging"] = map[string]any{
+		"enabled":     def.Logging.Enabled,
+		"path":        def.Logging.Path,
+		"max_size_mb": def.Logging.MaxSizeMB,
+		"max_age_days": def.Logging.MaxAgeDays,
+	}
+	notifications, _ := doc["notifications"].(map[string]any)
+	if notifications == nil {
+		notifications = map[string]any{}
+	}
+	notifications["audit"] = false
+	notifications["batch"] = map[string]any{
+		"enabled":   true,
+		"interval":  "60s",
+		"max_items": 20,
+	}
+	doc["notifications"] = notifications
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	perm := os.FileMode(0o600)
+	if fi, err := os.Stat(*cfgPath); err == nil {
+		perm = fi.Mode().Perm()
+	}
+	if err := os.WriteFile(*cfgPath, append(out, '\n'), perm); err != nil {
+		return err
+	}
+	fmt.Println("production mode enabled:", *cfgPath)
+	return nil
+}
+
 func printHelp() {
 	fmt.Println(`banhack233 - adaptive host attack blocker and notifier
 
@@ -302,6 +358,7 @@ Usage:
   banhack233 status [-config path]           show version, config, autostart, audit summary
   banhack233 secure-ssh [-config path]       preview SSH hardening block
   banhack233 secure-ssh -write               apply SSH hardening; requires allowed_users unless -force
+  banhack233 enable-production [-config path] switch config to production mode (dry_run off, geoip/logging/batch on)
   banhack233 keepalive [-write] [-tcp]       keep SSH alive; TCP sysctl is opt-in
   banhack233 ban-list                        list active ban backend entries
   banhack233 whitelist [-config path] [ip/cidr ...] list or add never-ban addresses; restart daemon after changes

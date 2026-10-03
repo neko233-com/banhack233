@@ -16,4 +16,9 @@ dist/
 /*.test
 /coverage*.out
 /coverage*.html
-__pycache__/
+
+# Go tools build outputs (tools/remotessh, tools/integration).
+/tools/remotessh/remotessh
+/tools/remotessh/remotessh.exe
+/tools/integration/integration
+/tools/integration/integration.exe

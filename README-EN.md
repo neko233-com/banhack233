@@ -124,6 +124,13 @@ sudo banhack233 install-autostart
 Enable real bans after observing dry-run output:
 
 ```sh
+sudo banhack233 enable-production -config /etc/banhack233/config.json
+sudo systemctl restart banhack233
+```
+
+`enable-production` sets `dry_run=false` and turns on GeoIP, log rotation, and batch notifications; nothing else changes. Run `scripts/enable-production.sh` first when the GeoIP database is missing (it downloads the database and also applies `secure-ssh` plus a restart). To flip only `dry_run`:
+
+```sh
 sudo sed -i 's/"dry_run": true/"dry_run": false/' /etc/banhack233/config.json
 sudo systemctl restart banhack233
 ```
@@ -142,6 +149,7 @@ banhack233 malware-scan
 sudo banhack233 malware-scan -kill
 banhack233 secure-ssh
 sudo banhack233 secure-ssh -write -force
+sudo banhack233 enable-production -config /etc/banhack233/config.json
 sudo banhack233 keepalive -write
 sudo banhack233 install-autostart
 ```
@@ -574,6 +582,13 @@ journalctl -u banhack233 -n 100 --no-pager
 ```sh
 go test ./...
 go vet ./...
+```
+
+The repository is pure Go (no Python). Two standalone helpers live under `tools/` (own go.mod, not part of the main module build):
+
+```sh
+cd tools/remotessh && go build     # SSH ops: diag / exec / put (password via SSH_PASS)
+cd tools/integration && go build   # Linux firewall integration checks (root + nft; stop the daemon first)
 ```
 
 Build all release binaries:

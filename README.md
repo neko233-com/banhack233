@@ -159,6 +159,13 @@ sudo banhack233 install-autostart
 7. 观察一段时间后开启真实封禁：
 
 ```sh
+sudo banhack233 enable-production -config /etc/banhack233/config.json
+sudo systemctl restart banhack233
+```
+
+`enable-production` 把 `dry_run` 置为 `false`，并启用 GeoIP、日志轮转与批量通知，其余配置不变。GeoIP 库不存在时先执行 `scripts/enable-production.sh`（它会下载数据库并顺带执行 `secure-ssh` 与重启）。只切 `dry_run` 也可以手工改配置：
+
+```sh
 sudo sed -i 's/"dry_run": true/"dry_run": false/' /etc/banhack233/config.json
 sudo systemctl restart banhack233
 ```
@@ -396,6 +403,15 @@ banhack233 whitelist
 不希望某条规则封 IP 时，将该规则的 `"action": "auto"` 改为 `"action": "notify"`，再重启。该规则达到阈值后只告警，`ban_time` 用作告警冷却时间；通知明确显示“未封禁”，生产模式也会解除该规则已有的自动封禁（同 IP 仍被其他规则封禁时除外）。其他规则继续按各自配置执行。
 
 如果服务器还运行 Fail2ban、SSHGuard、云防火墙或 SSH 连接频率限制，需要分别添加相同白名单。`banhack233 whitelist` 只管理本项目；这些独立拦截不受其控制。尤其是“同 IP 每分钟最多 N 次新连接”的规则，正确密码/密钥也可能触发，应为可信办公出口设置 SSH 端口例外并持久化。
+
+### 切换生产模式
+
+```sh
+sudo banhack233 enable-production -config /etc/banhack233/config.json
+sudo systemctl restart banhack233
+```
+
+关闭 `dry_run`，启用 GeoIP、日志轮转与批量通知，其余配置不变。
 
 ### 测试一次扫描
 
@@ -793,6 +809,13 @@ journalctl -u banhack233 -n 100 --no-pager
 go test ./...
 go vet ./...
 sh build-all.sh
+```
+
+仓库已全部使用 Go，不含 Python。附带两个独立小工具（各自 go.mod，不参与主模块构建）：
+
+```sh
+cd tools/remotessh && go build     # SSH 运维：diag / exec / put（密码走 SSH_PASS 环境变量）
+cd tools/integration && go build   # Linux 防火墙集成自检（需 root + nft，先停守护进程）
 ```
 
 发布 tag：

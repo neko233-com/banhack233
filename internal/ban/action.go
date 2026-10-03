@@ -5,9 +5,14 @@ import (
 	"fmt"
 	"net/netip"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
 )
+
+// 封禁规则只匹配 SSH(22) 端口：全端口 DROP 会在封禁攻击源时误伤
+// 共享出口上的 HTTPS 等正常业务访问。
+var handlePattern = regexp.MustCompile(`# handle (\d+)`)
 
 func Apply(ip, action string, dryRun bool) (string, error) {
 	if _, err := netip.ParseAddr(ip); err != nil {
@@ -37,7 +42,7 @@ func applyAuto(ip string) (string, error) {
 			return "nft", runOK(exec.Command("nft", "add", "element", "inet", "banhack233", "blocked", "{", ip, "}"))
 		}
 		if _, err := exec.LookPath("iptables"); err == nil {
-			return "iptables", exec.Command("iptables", "-I", "INPUT", "-s", ip, "-j", "DROP").Run()
+			return "iptables", exec.Command("iptables", "-I", "INPUT", "-s", ip, "-p", "tcp", "--dport", "22", "-j", "DROP").Run()
 		}
 		return "", fmt.Errorf("no nft or iptables found")
 	case "darwin":
@@ -47,7 +52,7 @@ func applyAuto(ip string) (string, error) {
 		return "pf", runOK(exec.Command("pfctl", "-t", "banhack233", "-T", "add", ip))
 	case "windows":
 		name := "banhack233-" + ip
-		return "netsh", exec.Command("netsh", "advfirewall", "firewall", "add", "rule", "name="+name, "dir=in", "action=block", "remoteip="+ip).Run()
+		return "netsh", exec.Command("netsh", "advfirewall", "firewall", "add", "rule", "name="+name, "dir=in", "action=block", "remoteip="+ip, "remoteport=22", "protocol=TCP").Run()
 	default:
 		return "", fmt.Errorf("unsupported OS %s", runtime.GOOS)
 	}
@@ -73,14 +78,58 @@ add chain inet banhack233 input { type filter hook input priority -100; policy a
 			return err
 		}
 	}
-	out, err := exec.Command("nft", "list", "chain", "inet", "banhack233", "input").CombinedOutput()
+	out, err := exec.Command("nft", "-a", "list", "chain", "inet", "banhack233", "input").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("list nft chain: %s: %w", out, err)
 	}
-	if strings.Contains(string(out), "ip saddr @blocked drop") {
-		return nil
+	plan := planChainRules(string(out))
+	for _, handle := range plan.DeleteHandles {
+		if err := runOK(exec.Command("nft", "delete", "rule", "inet", "banhack233", "input", "handle", handle)); err != nil {
+			return err
+		}
 	}
-	return runOK(exec.Command("nft", "add", "rule", "inet", "banhack233", "input", "ip", "saddr", "@blocked", "drop"))
+	if plan.MissingHandle {
+		return fmt.Errorf("nft rule without handle cannot be removed: %s", out)
+	}
+	if plan.NeedAdd {
+		return runOK(exec.Command("nft", "add", "rule", "inet", "banhack233", "input", "ip", "saddr", "@blocked", "tcp", "dport", "22", "drop"))
+	}
+	return nil
+}
+
+type chainRulesPlan struct {
+	DeleteHandles []string
+	MissingHandle bool
+	NeedAdd       bool
+}
+
+// planChainRules 解析 `nft -a list chain` 输出：删除旧版全端口规则和重复的
+// 当前规则，并判断是否缺少「只拦 SSH 端口」的当前规则。
+func planChainRules(listOutput string) chainRulesPlan {
+	var plan chainRulesPlan
+	seenCurrent := false
+	for _, line := range strings.Split(listOutput, "\n") {
+		if !strings.Contains(line, "ip saddr @blocked") {
+			continue
+		}
+		handle := ""
+		if m := handlePattern.FindStringSubmatch(line); m != nil {
+			handle = m[1]
+		}
+		scoped := strings.Contains(line, "tcp dport 22")
+		if scoped && !seenCurrent {
+			seenCurrent = true
+			continue
+		}
+		// 旧版全端口规则、重复的当前规则：都要删除。
+		if handle == "" {
+			plan.MissingHandle = true
+			continue
+		}
+		plan.DeleteHandles = append(plan.DeleteHandles, handle)
+	}
+	plan.NeedAdd = !seenCurrent
+	return plan
 }
 
 func runOK(cmd *exec.Cmd) error {
