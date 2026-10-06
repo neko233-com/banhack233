@@ -24,6 +24,8 @@ Default mode is `dry_run=true`: alert only, no real firewall ban. Switch to `dry
 
 Chinese docs: [README.md](README.md)
 
+**Documentation:** [HTML guide](https://neko233-com.github.io/banhack233/en.html) · [中文 HTML](https://neko233-com.github.io/banhack233/) · [Development and releases](docs/releasing-en.md) · [Changelog](CHANGELOG.md) · [Download Release](https://github.com/neko233-com/banhack233/releases/latest). The website updates only after a stable release passes checks, builds, and publication; its version label identifies what is deployed.
+
 ## What It Is
 
 `banhack233` is a simple host intrusion defense tool for Linux, macOS, and Windows.
@@ -300,7 +302,13 @@ If an application has its own 5-minute idle timeout, fix the application heartbe
 
 A public SSH server cannot see a client's MAC address: MAC addresses stay on the local link. Behind NAT, counting failures by username still affects everyone if enforcement blocks the shared IP. Use a separate SSH key or certificate for each device when device identity is needed. Password login and root login remain supported.
 
-The default rule counts only `Failed password` authentication failures. Connection counts, successful logins, and standalone `Invalid user` messages do not trigger it, preventing double counting. Upgrades preserve existing config; remove the separate `Invalid user` pattern from old rules as well. SSH `MaxAuthTries` limits authentication attempts within one connection, not new connections per minute.
+Current defaults detect password failures, invalid-user publickey failures, authentication limits, `Invalid user`, refused root login, and `Auth fail` disconnects. Successful login resets failure counters. Counts represent matching log events, so one authentication exchange can contribute multiple events; `max_attempts` is not an exact count of typed passwords. With `count_by_user=true`, counters use IP+username, but enforcement still blocks the source IP: keep trusted office addresses whitelisted. SSH `MaxAuthTries` limits attempts within one connection, not new connections per minute.
+
+For password-only detection, replace the existing SSH rule's `patterns` with the following and restart. Keep success-reset patterns and whitelist entries. Upgrades preserve existing config:
+
+```json
+"patterns": ["Failed password for(?: invalid user)? (?P<user>\\S+) from <HOST>"]
+```
 
 Add permanent office exceptions using individual IPv4/IPv6 addresses or CIDR networks:
 
@@ -608,4 +616,12 @@ Build all release binaries:
 ./build-all.sh
 ```
 
-GitHub Actions run CI and release builds.
+The HTML documentation generator is another standalone Go module:
+
+```sh
+cd tools/docs
+go test ./...
+go run . -root ../.. -out ../../site -version dev -commit local -serve 127.0.0.1:8088
+```
+
+Branch pushes and PRs do not trigger Actions. After local checks and release notes are ready, push a stable `vX.Y.Z` tag. One workflow runs CI, builds six binaries, publishes the Release, then deploys GitHub Pages. Older tags cannot replace newer docs, and failed prerequisite jobs never deploy. See [Development and releases](docs/releasing-en.md).

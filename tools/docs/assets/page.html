@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="{{.Language}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="banhack233 — fail2ban / sshguard style host protection, SSH keepalive, host audits and notifications. {{.Title}} · {{.Version}}">
+  <meta name="color-scheme" content="light">
+  <title>{{.Title}} · banhack233 {{.Version}}</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230c746a'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='sans-serif' font-size='46' font-weight='700' fill='white'%3Eb%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="docs.css">
+  <script src="docs.js" defer></script>
+</head>
+<body data-copy="{{.Copy}}" data-copied="{{.Copied}}" data-copy-failed="{{.CopyFailed}}">
+<a class="skip" href="#content">{{.Title}}</a>
+<header class="topbar">
+  <a class="brand" href="{{.Guide}}"><span class="brand-mark" aria-hidden="true">b<span>233</span></span><span>banhack<span class="accent">233</span></span></a>
+  <nav aria-label="Main"><a href="{{.Guide}}">{{if eq .Language "en"}}Guide{{else}}使用指南{{end}}</a><a href="{{.Releases}}">{{if eq .Language "en"}}Releases{{else}}开发与发布{{end}}</a><a href="changelog.html">Changelog</a><a href="{{.Alternate}}" lang="{{if eq .Language "en"}}zh-CN{{else}}en{{end}}">{{if eq .Language "en"}}中文{{else}}English{{end}}</a><a class="github" href="{{.Repository}}">GitHub ↗</a></nav>
+  <button class="menu-button" aria-controls="sidebar" aria-expanded="false">{{.Menu}} ☰</button>
+</header>
+<div class="layout">
+  <aside id="sidebar">
+    <div class="sidebar-head"><span class="eyebrow">DOCUMENTATION</span><a class="version" href="{{.ReleaseURL}}"><span aria-hidden="true">●</span> {{.Version}}</a></div>
+    <label for="find-section">{{.Navigation}}</label>
+    <input id="find-section" type="search" placeholder="{{.Search}}" autocomplete="off">
+    <nav class="toc" aria-label="{{.Navigation}}">{{range .TOC}}<a class="level-{{.Level}}" href="#{{.ID}}">{{.Title}}</a>{{end}}</nav>
+    <p id="no-results" hidden>{{.Empty}}</p>
+    <div class="sidebar-footer"><a href="config.json.example" download>config.json.example ↓</a><a href="{{.SourceURL}}">{{.SourceLabel}} ↗</a></div>
+  </aside>
+  <main id="content">
+    <div class="page-intro"><div class="eyebrow">HOST PROTECTION, MADE PRACTICAL</div><div class="page-meta"><span>{{.Title}}</span><span>{{.Version}}</span></div><p>{{.Footer}}</p></div>
+    <article>{{.Content}}</article>
+    <footer class="page-footer"><div><strong>banhack233</strong><p>{{.Version}} · {{.Commit}}</p></div><a href="{{.ReleaseURL}}">{{.ReleaseLabel}} ↗</a></footer>
+  </main>
+</div>
+</body>
+</html>

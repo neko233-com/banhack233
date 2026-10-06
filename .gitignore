@@ -1,5 +1,7 @@
 # Build outputs, local SSH/deployment helpers, and integration-test artifacts.
 dist/
+site/
+/.cache/
 
 # Local cross-compile artifacts (release builds use dist/)
 /banhack233
@@ -22,3 +24,5 @@ dist/
 /tools/remotessh/remotessh.exe
 /tools/integration/integration
 /tools/integration/integration.exe
+/tools/docs/docs
+/tools/docs/docs.exe

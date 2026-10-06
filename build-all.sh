@@ -12,6 +12,6 @@ for os in linux darwin windows; do
     ext=""
     [ "$os" = "windows" ] && ext=".exe"
     echo "build $os/$arch"
-    GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o "dist/banhack233-$os-$arch$ext" ./cmd/banhack233
+    GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -trimpath -ldflags "$LDFLAGS" -o "dist/banhack233-$os-$arch$ext" ./cmd/banhack233
   done
 done

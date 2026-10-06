@@ -22,9 +22,11 @@ banhack233 status
 
 默认 `dry_run=true`，只告警、不真封禁。确认无误后再改成 `dry_run=false`。
 
+**说明文档**：[HTML 中文](https://neko233-com.github.io/banhack233/) · [English HTML](https://neko233-com.github.io/banhack233/en.html) · [开发与发布](docs/releasing.md) · [版本记录](CHANGELOG.md) · [下载 Release](https://github.com/neko233-com/banhack233/releases/latest)。网页仅在正式版本检查、构建及发布成功后更新，版本号以网页标识为准。
+
 ## 项目定位
 
-`banhack233` 是傻瓜式主机防入侵工具，主要解决这些问题：
+`banhack233` 是 Go 编写的主机防护工具，集合 fail2ban / sshguard 风格防爆破、系统巡检、保活、通知和自启动，主要解决这些问题：
 
 - 服务器需要 SSH 密码登录，甚至需要 root 密码登录，但仍然要防爆破。
 - 需要自动扫 SSH 登录失败日志，超过阈值后封禁 IP。
@@ -387,7 +389,13 @@ sudo banhack233 unban 203.0.113.10
 
 公网 SSH 无法获取客户端电脑的 MAC 地址；MAC 只在本地链路内有效。同一个 NAT 出口下，即使按用户名累计失败，防火墙封 IP 仍会影响所有同事。需要识别具体设备时，使用每台设备独立的 SSH 密钥/证书；密码登录和 root 登录仍受支持。
 
-默认规则只累计 `Failed password`（密码认证失败），不因连接次数、成功登录或单独的 `Invalid user` 日志封禁，避免一次错误被重复计数。升级保留旧配置，已有规则需同步删除独立的 `Invalid user` 匹配。SSH 的 `MaxAuthTries` 只限制单次连接内的认证尝试，不是每分钟新连接数量限制。
+当前默认规则覆盖密码失败、无效用户公钥失败、认证超限、`Invalid user`、root 登录拒绝和 `Auth fail` 断开；成功登录会重置失败计数。计数基于匹配日志，一次认证过程可能产生多条日志；`max_attempts` 不是严格的密码输入次数。`count_by_user=true` 按 IP+用户名分组，最终封禁仍针对来源 IP，不能替代公司出口白名单。SSH 的 `MaxAuthTries` 只限制单次连接内的认证尝试，不是每分钟新连接数量限制。
+
+只希望统计密码失败时，将现有 SSH 规则的 `patterns` 替换为下面这一项，再重启服务；成功登录重置和白名单配置继续生效。升级不会覆盖已有配置：
+
+```json
+"patterns": ["Failed password for(?: invalid user)? (?P<user>\\S+) from <HOST>"]
+```
 
 为公司出口添加永久白名单，支持单个 IPv4/IPv6 地址或 CIDR 网段：
 
@@ -829,11 +837,12 @@ cd tools/remotessh && go build     # SSH 运维：diag / exec / put（密码走 
 cd tools/integration && go build   # Linux 防火墙集成自检（需 root + nft，先停守护进程）
 ```
 
-发布 tag：
+HTML 文档生成器也使用独立 Go module：
 
 ```sh
-git tag v0.1.8
-git push origin v0.1.8
+cd tools/docs
+go test ./...
+go run . -root ../.. -out ../../site -version dev -commit local -serve 127.0.0.1:8088
 ```
 
-GitHub Actions 会自动构建 release 资产。
+普通分支 push 和 PR 不触发 Actions。准备好发布说明并完成本地检查后，推送正式 `vX.Y.Z` 标签，工作流依次完成 CI、六平台打包、正式 Release 和 GitHub Pages。旧标签不能覆盖最新文档，任何前置步骤失败都不会部署新网页。详见 [开发与发布](docs/releasing.md)。

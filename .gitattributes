@@ -1,0 +1,4 @@
+# Shell scripts must remain executable by Linux shells after Windows checkouts.
+*.sh text eol=lf
+*.yml text eol=lf
+*.cjs text eol=lf
