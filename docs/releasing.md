@@ -58,7 +58,7 @@ go run . -root ../.. -out ../../site -version dev -commit local -serve 127.0.0.1
 
 ## 正式发布
 
-1. 更新 [中文 README](../README.md)、[英文 README](../README-EN.md) 和 [CHANGELOG](../CHANGELOG.md)。涉及行为变化时同步示例配置。
+1. 更新 [中文 README](../README.md)、[英文 README](../README-EN.md)、相关中英文专题和 [CHANGELOG](../CHANGELOG.md)。涉及行为变化时同步示例配置。
 2. 在 `docs/releases/vX.Y.Z.md` 写本次 Release 的具体变化与升级说明。工作流要求该文件存在，避免发布空说明。
 3. 完成本地检查，将提交推送到 `main`；此时不会运行 Actions。
 4. 对已审核的提交创建一个未使用的正式版本标签并推送。
@@ -82,6 +82,14 @@ git push origin vX.Y.Z
 - 网站内容只读取预定的文档和 `configs/config.json.example`，不发布仓库根目录或本机配置。
 - `site/`、`dist/`、`.local/`、真实 `config.json` 和状态文件均不提交。
 - 每页显示版本与提交；`version.json` 提供版本、提交、构建时间。
+
+## 文档维护约定
+
+日常补充先记在 CHANGELOG 的 `Unreleased`，普通提交不更新线上 HTML。准备正式发布时，将已完成内容整理进本次版本记录和非空 Release 说明，按照同一发布流程一次上线。
+
+新增专题时同时提供中文和英文，在 [生成器](../tools/docs/main.go) 的 `pages` 中注册两页及互相对应的 `Alternate`；专题导航由此生成。使用相对 Markdown 链接，构建时转成 HTML；未注册的 `.md` 链接会报错，避免发布坏链接。
+
+描述行为时核对源码的默认值、加载逻辑、执行路径和测试。能力限制与候选方向放在 [工作原理与边界](design.md)，不得把候选项写成已支持功能。变更后运行文档模块测试，核对内链、对应语言、桌面/手机导航和代码复制。配置/日志样例仅使用占位地址与凭据。
 
 ## 故障处理
 

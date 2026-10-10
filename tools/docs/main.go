@@ -33,6 +33,16 @@ type page struct{ Source, File, Title, Language, Alternate string }
 var pages = []page{
 	{"README.md", "index.html", "使用指南", "zh-CN", "en.html"},
 	{"README-EN.md", "en.html", "User guide", "en", "index.html"},
+	{"docs/commands.md", "commands.html", "命令参考", "zh-CN", "commands-en.html"},
+	{"docs/commands-en.md", "commands-en.html", "Commands", "en", "commands.html"},
+	{"docs/configuration.md", "configuration.html", "配置参考", "zh-CN", "configuration-en.html"},
+	{"docs/configuration-en.md", "configuration-en.html", "Configuration", "en", "configuration.html"},
+	{"docs/operations.md", "operations.html", "部署与恢复", "zh-CN", "operations-en.html"},
+	{"docs/operations-en.md", "operations-en.html", "Operations", "en", "operations.html"},
+	{"docs/troubleshooting.md", "troubleshooting.html", "排障与 FAQ", "zh-CN", "troubleshooting-en.html"},
+	{"docs/troubleshooting-en.md", "troubleshooting-en.html", "Troubleshooting", "en", "troubleshooting.html"},
+	{"docs/design.md", "design.html", "原理与边界", "zh-CN", "design-en.html"},
+	{"docs/design-en.md", "design-en.html", "Architecture & limits", "en", "design.html"},
 	{"docs/releasing.md", "releasing.html", "开发与发布", "zh-CN", "releasing-en.html"},
 	{"docs/releasing-en.md", "releasing-en.html", "Development & releases", "en", "releasing.html"},
 	{"CHANGELOG.md", "changelog.html", "版本记录 / Changelog", "zh-CN", "en.html"},
@@ -42,6 +52,12 @@ type heading struct {
 	ID, Title string
 	Level     int
 }
+
+type documentLink struct {
+	File, Title string
+	Current     bool
+}
+
 type metadata struct {
 	Version    string `json:"version"`
 	Commit     string `json:"commit"`
@@ -53,6 +69,7 @@ type view struct {
 	metadata
 	Content                                                                                                       template.HTML
 	TOC                                                                                                           []heading
+	Documents                                                                                                     []documentLink
 	Guide, Releases, Navigation, Search, Empty, Menu, Copy, Copied, CopyFailed, SourceLabel, ReleaseLabel, Footer string
 	SourceURL, ReleaseURL                                                                                         string
 }
@@ -124,6 +141,15 @@ func build(root, out string, meta metadata) error {
 			v.SourceLabel = "View source"
 			v.ReleaseLabel = "Download release"
 			v.Footer = "fail2ban / sshguard style · Host audits · Keepalive · Notifications · Autostart"
+		}
+		for _, topic := range pages {
+			if topic.Language == p.Language || topic.File == "changelog.html" {
+				v.Documents = append(v.Documents, documentLink{topic.File, topic.Title, topic.File == p.File})
+			}
+		}
+		if meta.Version == "dev" {
+			v.SourceURL = repository + "/blob/main/" + p.Source
+			v.ReleaseURL = repository + "/releases/latest"
 		}
 		var output bytes.Buffer
 		if err := tmpl.Execute(&output, v); err != nil {
@@ -219,6 +245,9 @@ func headingID(title string) string {
 }
 
 func rewriteLink(dest, source, version string) (string, error) {
+	if version == "dev" {
+		version = "main"
+	}
 	u, err := url.Parse(dest)
 	if err != nil {
 		return "", err

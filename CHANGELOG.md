@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased / 未发布
+
+- 补充中英文命令参考、完整配置参考、部署与恢复手册、排障 FAQ、工作原理与平台边界。
+- HTML 文档增加跨专题导航和对应语言切换；新内容随下一次正式 Release 构建上线。
+- 按当前源码澄清命令副作用、生产预设覆盖字段、日志/状态语义、通知投递限制和跨平台已知问题；本次未修改主机防护逻辑。
+- Added bilingual operational references and topic navigation. Documented current behavior and limitations; host protection behavior is unchanged.
+
 ## v0.1.22 — 2026-10-06
 
 - 新增 GitHub Pages 中英文 HTML 文档：章节检索、命令复制、配置下载、移动端目录及离线包。

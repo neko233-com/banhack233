@@ -39,6 +39,10 @@ func TestRelativeLinksAndUnknownDocs(t *testing.T) {
 	if _, err := rewriteLink("missing.md", "README.md", "v0.1.22"); err == nil {
 		t.Fatal("broken documentation link accepted")
 	}
+	link, err = rewriteLink("../internal/config/config.go", "docs/configuration.md", "dev")
+	if err != nil || link != repository+"/blob/main/internal/config/config.go" {
+		t.Fatalf("development source link=%s, err=%v", link, err)
+	}
 	body, _, err := render([]byte("<script>alert('unsafe')</script>"), "README.md", "v0.1.22")
 	if err != nil || strings.Contains(body, "<script>") {
 		t.Fatalf("raw HTML allowed: %s %v", body, err)
@@ -123,7 +127,7 @@ func TestBuildPublishesOnlyDesignatedFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) != 10 {
+	if len(files) != len(pages)+5 {
 		t.Fatalf("unexpected published files: %v", files)
 	}
 	if _, err := os.Stat(filepath.Join(out, "config.json")); !os.IsNotExist(err) {

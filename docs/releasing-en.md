@@ -58,7 +58,7 @@ Open `http://127.0.0.1:8088`. Generated HTML/CSS/JS works offline, without remot
 
 ## Publish a release
 
-1. Update the [Chinese README](../README.md), [English README](../README-EN.md), and [CHANGELOG](../CHANGELOG.md). Keep the config example aligned with behavioral changes.
+1. Update the [Chinese README](../README.md), [English README](../README-EN.md), relevant bilingual topics, and [CHANGELOG](../CHANGELOG.md). Keep the config example aligned with behavioral changes.
 2. Write concrete changes and upgrade notes in `docs/releases/vX.Y.Z.md`. The workflow requires this file to avoid empty release descriptions.
 3. Run local checks and push the reviewed commit to `main`. This does not trigger Actions.
 4. Create an unused stable tag on that commit and push it:
@@ -82,6 +82,14 @@ Documentation: <https://neko233-com.github.io/banhack233/>.
 - Only designated documents and `configs/config.json.example` enter the site; the repository root and local configs are never uploaded.
 - `site/`, `dist/`, `.local/`, real config and state files are ignored.
 - Every page displays its version and commit; `version.json` also includes the build timestamp.
+
+## Documentation maintenance
+
+Record ordinary updates under `Unreleased`; branch commits do not update online HTML. When a stable release is ready, organize the completed changes into its changelog and nonempty release notes, then publish them together through the normal pipeline.
+
+Add topics in both languages and register their paired `Alternate` pages in the generator's [pages list](../tools/docs/main.go), which also builds topic navigation. Use relative Markdown links; the build rewrites them to HTML and rejects unregistered `.md` targets.
+
+Verify behavior against defaults, loading, execution paths, and tests. Keep current limits and proposed work in [architecture and limits](design-en.md); candidates must not be presented as supported features. Run documentation tests and check internal links, paired languages, desktop/mobile navigation, and code copying. Use placeholder addresses and credentials in all examples.
 
 ## Troubleshooting
 

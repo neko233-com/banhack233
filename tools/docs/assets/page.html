@@ -20,6 +20,7 @@
 <div class="layout">
   <aside id="sidebar">
     <div class="sidebar-head"><span class="eyebrow">DOCUMENTATION</span><a class="version" href="{{.ReleaseURL}}"><span aria-hidden="true">●</span> {{.Version}}</a></div>
+    <nav class="doc-pages" aria-label="{{if eq .Language "en"}}Documentation topics{{else}}文档专题{{end}}">{{range .Documents}}<a href="{{.File}}"{{if .Current}} aria-current="page"{{end}}>{{.Title}}</a>{{end}}</nav>
     <label for="find-section">{{.Navigation}}</label>
     <input id="find-section" type="search" placeholder="{{.Search}}" autocomplete="off">
     <nav class="toc" aria-label="{{.Navigation}}">{{range .TOC}}<a class="level-{{.Level}}" href="#{{.ID}}">{{.Title}}</a>{{end}}</nav>

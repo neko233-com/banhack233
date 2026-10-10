@@ -24,6 +24,18 @@ banhack233 status
 
 **说明文档**：[HTML 中文](https://neko233-com.github.io/banhack233/) · [English HTML](https://neko233-com.github.io/banhack233/en.html) · [开发与发布](docs/releasing.md) · [版本记录](CHANGELOG.md) · [下载 Release](https://github.com/neko233-com/banhack233/releases/latest)。网页仅在正式版本检查、构建及发布成功后更新，版本号以网页标识为准。
 
+## 深入文档
+
+| 你要解决的问题 | 文档 |
+| --- | --- |
+| 命令参数、权限、哪些操作会修改系统 | [命令参考与副作用](docs/commands.md) |
+| 默认值、规则覆盖、密码专用模式、通知字段 | [完整配置参考](docs/configuration.md) |
+| 首次上线、隔离回放、公司误封、升级与回滚 | [部署与恢复手册](docs/operations.md) |
+| 没有封禁、重复计数、通知未到、SSH 断线 | [排障与 FAQ](docs/troubleshooting.md) |
+| 扫描流程、状态与防火墙关系、平台限制、后续方向 | [工作原理与边界](docs/design.md) |
+
+仓库文档可能包含未发布内容；线上 HTML 对应网页标明的正式版本，见 [更新记录](CHANGELOG.md)。
+
 ## 项目定位
 
 `banhack233` 是 Go 编写的主机防护工具，集合 fail2ban / sshguard 风格防爆破、系统巡检、保活、通知和自启动，主要解决这些问题：
@@ -31,7 +43,7 @@ banhack233 status
 - 服务器需要 SSH 密码登录，甚至需要 root 密码登录，但仍然要防爆破。
 - 需要自动扫 SSH 登录失败日志，超过阈值后封禁 IP。
 - 需要开机自启动、通知告警、安全巡检、默认每 1 小时审计一次。
-- 需要 SSH 至少 24 小时不断线。
+- 需要为长时间空闲的 SSH 会话配置保活；实际连通性仍受网络和客户端状态影响。
 - 需要 Linux、macOS、Windows 尽量自适应。
 
 English docs: [README-EN.md](README-EN.md)
@@ -45,13 +57,13 @@ English docs: [README-EN.md](README-EN.md)
 3. `denyhosts`：登录失败来源识别与阻断思路。
 4. `crowdsec`：安全事件检测、封禁、告警生态。
 5. `ClamAV` / `rkhunter` / `chkrootkit`：Linux 恶意文件、rootkit、入侵痕迹检查思路。
-6. `ufw` / `nftables` / `iptables` / Windows 防火墙：实际封禁后端。
+6. `nftables` / `iptables` / PF / Windows 防火墙：本项目调用的后端；`ufw` 属于相关防火墙管理工具，没有独立适配器。
 
 ## 功能
 
 1. 系统安全巡检：SSH 策略、防火墙后端、系统更新/重启需求、通知渠道等。
 2. SSH 登录失败扫描：支持 auth.log、secure、Windows OpenSSH event log。
-3. 自动封禁：Linux 优先 `nft`，降级 `iptables`；Windows 使用防火墙规则。
+3. 自动封禁：Linux 有 `nft` 命令时优先使用，否则使用 `iptables` / `ip6tables`，自动规则固定目标 TCP 22；Windows/macOS 的当前限制见 [平台边界](docs/design.md)。
 4. root 密码登录支持：不强制禁 root，不强制禁密码登录。
 5. SSH 安全基线：禁空密码、低重试、短登录宽限、保留强密码场景。
 6. SSH 24 小时保活：默认只改 SSH keepalive，不改系统 TCP sysctl。
@@ -62,7 +74,7 @@ English docs: [README-EN.md](README-EN.md)
 11. 可选自动处置：`direct_kill=true` 后直接 kill 可疑进程。
 12. 开机自启动：Linux systemd、macOS launchd、Windows schtasks。
 13. 安全默认值：`dry_run=true`、`start_at_end=true`、`ignore_ips` 白名单、`direct_kill=false`。
-14. 防爆破覆盖与 fail2ban normal 模式对齐：密码失败、无效用户公钥失败、认证超限、`Invalid user`、`ROOT LOGIN REFUSED`、`Auth fail` 断开均计数；成功登录（`reset_patterns`）自动清零该 IP 失败计数。支持 IPv4/IPv6 双栈（`<HOST>` 宏自动展开），坏日志行自动跳过不打断扫描。
+14. 参考 fail2ban normal 风格的认证失败检测：密码失败、无效用户公钥失败、认证超限、`Invalid user`、`ROOT LOGIN REFUSED`、`Auth fail` 断开均计数；成功登录（`reset_patterns`）清零当前规则下该 IP 的失败计数。支持 IPv4/IPv6 双栈（`<HOST>` 宏自动展开），坏日志 IP 跳过处理。完整状态语义和平台差异见 [工作原理](docs/design.md)。
 
 ## 是否能作为杀毒软件
 
@@ -93,6 +105,8 @@ English docs: [README-EN.md](README-EN.md)
 | Linux | amd64 / arm64 | `install.sh` | systemd |
 | macOS | amd64 / arm64 | `install.sh` | launchd |
 | Windows | amd64 / arm64 | `install.ps1` 或 Git Bash `install.sh` | schtasks |
+
+以上表示构建和启动支持，不代表各平台防火墙行为完全一致。Windows 当前存在事件重复读取与防火墙端口方向问题；macOS 需要单独配置 PF 过滤规则和日志来源。部署前阅读 [已知限制](docs/design.md)。
 
 Linux 默认配置路径：
 
@@ -166,7 +180,7 @@ sudo banhack233 enable-production -config /etc/banhack233/config.json
 sudo systemctl restart banhack233
 ```
 
-`enable-production` 把 `dry_run` 置为 `false`，并启用 GeoIP、日志轮转与批量通知，其余配置不变。GeoIP 库不存在时先执行 `scripts/enable-production.sh`（它会下载数据库并顺带执行 `secure-ssh` 与重启）。只切 `dry_run` 也可以手工改配置：
+`enable-production` 把 `dry_run` 置为 `false`，覆盖 GeoIP/日志配置为平台默认值，设置巡检通知关闭、批量通知启用（60 秒/20 条）；保留规则、白名单和渠道凭据，不重启服务。已有自定义路径时先查看 [字段说明](docs/configuration.md)。`scripts/enable-production.sh` 还会下载缺失数据库、以 `-force` 应用 SSH 基线并尝试重启，执行前需审阅。只切 `dry_run` 也可以手工改配置：
 
 ```sh
 sudo sed -i 's/"dry_run": true/"dry_run": false/' /etc/banhack233/config.json
@@ -174,6 +188,8 @@ sudo systemctl restart banhack233
 ```
 
 ## 常用命令
+
+完整参数和副作用见 [命令参考](docs/commands.md)。`test` 会执行真实扫描并写状态，生产配置下可封禁；`status` / `doctor` 会巡检，开启 `direct_kill` 时也可结束可疑进程。观察模式请同时保持 `dry_run=true` 和 `direct_kill=false`。
 
 ### 查看整体状态
 
@@ -420,9 +436,11 @@ sudo banhack233 enable-production -config /etc/banhack233/config.json
 sudo systemctl restart banhack233
 ```
 
-关闭 `dry_run`，启用 GeoIP、日志轮转与批量通知，其余配置不变。
+应用生产预设，会覆盖 GeoIP、日志和批量通知等字段；详见 [配置参考](docs/configuration.md)。
 
 ### 测试一次扫描
+
+这是执行一次扫描，不是配置语法检查。使用 [隔离日志回放](docs/operations.md) 验证匹配，避免与守护进程共享状态。
 
 ```sh
 banhack233 test

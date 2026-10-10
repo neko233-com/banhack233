@@ -26,6 +26,18 @@ Chinese docs: [README.md](README.md)
 
 **Documentation:** [HTML guide](https://neko233-com.github.io/banhack233/en.html) · [中文 HTML](https://neko233-com.github.io/banhack233/) · [Development and releases](docs/releasing-en.md) · [Changelog](CHANGELOG.md) · [Download Release](https://github.com/neko233-com/banhack233/releases/latest). The website updates only after a stable release passes checks, builds, and publication; its version label identifies what is deployed.
 
+## Detailed documentation
+
+| Your question | Reference |
+| --- | --- |
+| Arguments, permissions, and operations that change the system | [Commands and side effects](docs/commands-en.md) |
+| Defaults, rule replacement, password-only detection, notification fields | [Configuration reference](docs/configuration-en.md) |
+| First deployment, isolated replay, office recovery, upgrades and rollback | [Operations guide](docs/operations-en.md) |
+| No bans, duplicate counts, missing notifications, disconnected SSH | [Troubleshooting and FAQ](docs/troubleshooting-en.md) |
+| Scanning, state versus firewall, platform limits, future work | [Architecture and limits](docs/design-en.md) |
+
+Repository docs can include unreleased changes. Online HTML represents the stable version displayed on the page; see the [changelog](CHANGELOG.md).
+
 ## What It Is
 
 `banhack233` is a simple host intrusion defense tool for Linux, macOS, and Windows.
@@ -35,7 +47,7 @@ It mainly solves these cases:
 - You need SSH password login, sometimes root password login, but still want brute-force defense.
 - You need failed SSH login scanning and threshold-based IP bans.
 - You need autostart, alerts, host audit, and hourly scheduled audit.
-- You need SSH sessions to stay connected for at least 24 hours.
+- You need keepalive for long-idle SSH sessions; actual connectivity still depends on the network and client.
 - You need Linux, macOS, and Windows adaptation.
 
 Password SSH login and root password login are supported use cases. The default baseline keeps them enabled while reducing risk with low retry count, short login grace time, no empty passwords, alerts, whitelist, and automated bans.
@@ -49,13 +61,13 @@ Password SSH login and root password login are supported use cases. The default 
 3. `denyhosts`: failed login source detection and blocking ideas.
 4. `crowdsec`: security event detection, remediation, and alert ecosystem.
 5. `ClamAV` / `rkhunter` / `chkrootkit`: Linux malicious file, rootkit, and compromise indicator checks.
-6. `ufw` / `nftables` / `iptables` / Windows Firewall: actual ban backends.
+6. `nftables` / `iptables` / PF / Windows Firewall: backends called by this project; `ufw` is a related management tool without a dedicated adapter here.
 
 ## Features
 
 1. Host security audit: SSH policy, firewall backend, update/reboot hints, notification channels.
 2. SSH failed-login scanning: auth.log, secure, Windows OpenSSH event log.
-3. Automatic bans: Linux prefers `nft`, falls back to `iptables`; Windows uses firewall rules.
+3. Automatic bans: Linux uses `nft` if available, otherwise `iptables` / `ip6tables`, targeting destination TCP 22. See [current Windows/macOS limits](docs/design-en.md).
 4. Root password login support: root and password login are not forcibly disabled.
 5. SSH security baseline: no empty password, low retry count, short grace time, strong-password use case.
 6. SSH 24-hour keepalive: default changes SSH keepalive only, not system TCP sysctl.
@@ -66,7 +78,7 @@ Password SSH login and root password login are supported use cases. The default 
 11. Optional remediation: `direct_kill=true` directly kills suspicious processes.
 12. Autostart: Linux systemd, macOS launchd, Windows schtasks.
 13. Safe defaults: `dry_run=true`, `start_at_end=true`, `ignore_ips` whitelist, `direct_kill=false`.
-14. fail2ban normal-mode parity: password failures, invalid-user publickey failures, max-auth-exceeded, `Invalid user`, `ROOT LOGIN REFUSED`, and `Auth fail` disconnects all count; a successful login (`reset_patterns`) clears the IP failure counter. IPv4/IPv6 dual-stack supported (`<HOST>` macro expands automatically), and malformed log lines are skipped without interrupting the scan.
+14. fail2ban normal-style authentication detection: password failures, invalid-user publickey failures, max-auth-exceeded, `Invalid user`, `ROOT LOGIN REFUSED`, and `Auth fail` disconnects count. Successful login (`reset_patterns`) clears that IP's counters within the current rule. IPv4/IPv6 matching uses `<HOST>`; invalid log IPs are skipped. See [state semantics and platform differences](docs/design-en.md).
 
 ## Can It Be Antivirus?
 
@@ -97,6 +109,8 @@ So default behavior is scan and alert only. Remediation must be explicitly enabl
 | Linux | amd64 / arm64 | `install.sh` | systemd |
 | macOS | amd64 / arm64 | `install.sh` | launchd |
 | Windows | amd64 / arm64 | `install.ps1` or Git Bash `install.sh` | schtasks |
+
+These are build/startup targets, not identical firewall capabilities. Windows currently has repeated event reads and a firewall port-direction issue; macOS needs separately configured PF filters and log input. Read [known limits](docs/design-en.md) before deployment.
 
 Default config paths:
 
@@ -131,7 +145,7 @@ sudo banhack233 enable-production -config /etc/banhack233/config.json
 sudo systemctl restart banhack233
 ```
 
-`enable-production` sets `dry_run=false` and turns on GeoIP, log rotation, and batch notifications; nothing else changes. Run `scripts/enable-production.sh` first when the GeoIP database is missing (it downloads the database and also applies `secure-ssh` plus a restart). To flip only `dry_run`:
+`enable-production` sets `dry_run=false`, replaces GeoIP/logging with platform defaults, disables audit notifications, and enables batching at 60 seconds / 20 items. It preserves rules, whitelist, and channel credentials but does not restart the service. Review [field changes](docs/configuration-en.md) if paths are customized. `scripts/enable-production.sh` additionally downloads a missing database, applies the SSH baseline with `-force`, and attempts a restart; review it before running. To flip only `dry_run`:
 
 ```sh
 sudo sed -i 's/"dry_run": true/"dry_run": false/' /etc/banhack233/config.json
@@ -139,6 +153,8 @@ sudo systemctl restart banhack233
 ```
 
 ## Main Commands
+
+See [command arguments and side effects](docs/commands-en.md). `test` executes a real scan, writes state, and can ban in production. `status` / `doctor` run audits, which can terminate suspicious processes if `direct_kill` is enabled. Keep both `dry_run=true` and `direct_kill=false` for observation.
 
 ```sh
 banhack233 status
@@ -437,7 +453,7 @@ banhack233 notify-test -channel feishu,email
 banhack233 notify-test -message "custom test text"
 ```
 
-`banhack233 test` only scans logs; notifications are sent only when a ban or audit alert fires.
+`banhack233 test` executes one real daemon cycle, including state writes and configured actions. Notifications require a triggered event; use [isolated replay](docs/operations-en.md) for matching tests and `notify-test` for channel delivery.
 
 ### Discord
 
