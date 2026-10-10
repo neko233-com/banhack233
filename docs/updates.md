@@ -1,10 +1,10 @@
 # 正式版本自动更新与回滚
 
-从 v0.2.0 开始支持每日检查、校验后安装、重启托管服务及启动失败回滚。更新只下载本项目 GitHub 正式 Release，不执行 `main` 分支脚本，不建立 SSH 连接，也不触发 GitHub Actions。
+从 v0.2.1 开始支持每日检查、校验后安装、重启托管服务及启动失败回滚。更新只下载本项目 GitHub 正式 Release，不执行 `main` 分支脚本，不建立 SSH 连接，也不触发 GitHub Actions。
 
 ## 首次从旧版升级
 
-旧二进制没有 updater 时，先使用 [安装命令](../README.md) 升级到 v0.2.0 或更高版本。安装器会验证 `SHA256SUMS.txt`，保留已有配置；旧规则不会自动变成新默认值。
+旧二进制没有 updater 时，先使用 [安装命令](../README.md) 升级到 v0.2.1 或更高版本。安装器会验证 `SHA256SUMS.txt`，保留已有配置；旧规则不会自动变成新默认值。
 
 ```sh
 sudo banhack233 safe-ssh -config /etc/banhack233/config.json

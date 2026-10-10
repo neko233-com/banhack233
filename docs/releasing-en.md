@@ -29,7 +29,7 @@ The download latest points to the latest stable Release. The website's `version.
 
 ## Local checks
 
-Prerequisites: Go 1.22+, Git, Node.js for release-guard tests, actionlint, and ShellCheck. Program and documentation builds do not require Python.
+Release builds and CI use Go 1.27.2. Other prerequisites: Git, Node.js for release-guard tests, actionlint, and ShellCheck; no Python. Modules retain a Go 1.22 source baseline, but old compilers produce macOS binaries incompatible with macOS 26 loader requirements and must not be used for releases. [Go linker notes](https://go.dev/doc/go1.24#linker)
 
 ```sh
 go test ./...

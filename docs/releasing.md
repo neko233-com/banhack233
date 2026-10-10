@@ -29,7 +29,7 @@
 
 ## 本地检查
 
-需要 Go 1.22+、Git、Node.js（测试发布门禁）、actionlint 和 ShellCheck。程序及文档构建不依赖 Python。
+正式构建和 CI 使用 Go 1.27.2；另需 Git、Node.js（测试发布门禁）、actionlint 和 ShellCheck。程序及文档构建不依赖 Python。源码模块最低 Go 1.22，但旧版编译器生成的 macOS 二进制不满足 macOS 26 的加载要求，不用于发布。[Go 链接器说明](https://go.dev/doc/go1.24#linker)
 
 ```sh
 go test ./...

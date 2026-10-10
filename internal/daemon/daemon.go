@@ -32,6 +32,9 @@ func Run(ctx context.Context, cfg config.Config) error {
 		return err
 	}
 	defer unlock()
+	if err := reconcileFirewallScope(cfg); err != nil {
+		return err
+	}
 	dispatcher := notify.NewDispatcher(cfg.Notifications, cfg.GeoIP)
 	defer dispatcher.Close()
 	logger, err := applog.New(cfg.Logging)
@@ -84,6 +87,9 @@ func RunOnce(ctx context.Context, cfg config.Config) error {
 		return err
 	}
 	defer unlock()
+	if err := reconcileFirewallScope(cfg); err != nil {
+		return err
+	}
 	dispatcher := notify.NewDispatcher(cfg.Notifications, cfg.GeoIP)
 	logger, err := applog.New(cfg.Logging)
 	if err != nil {
@@ -91,6 +97,17 @@ func RunOnce(ctx context.Context, cfg config.Config) error {
 	}
 	defer dispatcher.Close()
 	return errors.Join(runOnce(ctx, cfg, dispatcher, logger), dispatcher.Flush(ctx))
+}
+
+func reconcileFirewallScope(cfg config.Config) error {
+	if !cfg.DryRun {
+		for _, rule := range cfg.Rules {
+			if rule.Action == "" || rule.Action == "auto" {
+				return ban.ReconcileExistingPorts(cfg.SSHPorts)
+			}
+		}
+	}
+	return nil
 }
 
 func runOnce(ctx context.Context, cfg config.Config, dispatcher *notify.Dispatcher, logger *applog.Logger) (result error) {

@@ -1,10 +1,10 @@
 # Verified stable updates and rollback
 
-v0.2.0 adds daily checks, verified installation, managed-service restart and startup-failure rollback. Updates download this project's published GitHub Release assets; they do not execute `main` scripts, create SSH connections or trigger GitHub Actions.
+v0.2.1 adds daily checks, verified installation, managed-service restart and startup-failure rollback. Updates download this project's published GitHub Release assets; they do not execute `main` scripts, create SSH connections or trigger GitHub Actions.
 
 ## Upgrade an older installation
 
-Use the [installer](../README-EN.md) once to obtain v0.2.0 or later. Installers verify SHA256SUMS and preserve configuration. Existing rules do not silently inherit new defaults.
+Use the [installer](../README-EN.md) once to obtain v0.2.1 or later. Installers verify SHA256SUMS and preserve configuration. Existing rules do not silently inherit new defaults.
 
 ```sh
 sudo banhack233 safe-ssh -config /etc/banhack233/config.json

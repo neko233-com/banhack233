@@ -377,5 +377,17 @@ func main() {
 	expectBlocked()
 	fmt.Println("PASS separate username counters only ban when one account reaches threshold")
 
-	fmt.Println("ALL 13 LINUX INTEGRATION CHECKS PASSED")
+	// 14. A quiet upgrade must narrow legacy all-port rules without waiting for a new attacker.
+	run("nft", "flush", "chain", "inet", "banhack233", "input")
+	run("nft", "add", "rule", "inet", "banhack233", "input", "ip", "saddr", "@blocked", "drop")
+	run("nft", "add", "element", "inet", "banhack233", "blocked", "{", "203.0.113.17", "}")
+	scan()
+	mustf(chainRuleCount() == 2 && strings.Count(chainRuleText(), "tcp dport { 2200, 2222 } drop") == 2,
+		"legacy scope was not migrated before new failures: %s", chainRuleText())
+	expectBlocked("203.0.113.17")
+	run(*binPath, "unban", "-config", cfgPath, "203.0.113.17")
+	expectBlocked()
+	fmt.Println("PASS startup migrates legacy full-port rules without changing set members")
+
+	fmt.Println("ALL 14 LINUX INTEGRATION CHECKS PASSED")
 }

@@ -104,6 +104,25 @@ func ensureNFT() error {
 	return ensureNFTPorts([]int{22})
 }
 
+// ReconcileExistingPorts narrows this application's legacy nft rules before
+// scanning. Existing blocked addresses remain intact; no table is created here.
+func ReconcileExistingPorts(ports []int) error {
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+	if _, err := exec.LookPath("nft"); err != nil {
+		return nil
+	}
+	out, err := exec.Command("nft", "list", "table", "inet", "banhack233").CombinedOutput()
+	if err != nil {
+		if strings.Contains(string(out), "No such file or directory") {
+			return nil
+		}
+		return fmt.Errorf("inspect existing nft scope: %s: %w", out, err)
+	}
+	return ensureNFTPorts(ports)
+}
+
 func ensureNFTPorts(ports []int) error {
 	script := `
 add table inet banhack233
