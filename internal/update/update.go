@@ -163,7 +163,12 @@ func Run(ctx context.Context, opts Options) (string, error) {
 	if opts.Rollback {
 		return rollback(ctx, opts)
 	}
-	client := &http.Client{Timeout: 2 * time.Minute, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = 30 * time.Second
+	defer transport.CloseIdleConnections()
+	// Release assets must also finish on slow international links. Connection/TLS
+	// and response-header timeouts stay short; the body has a bounded ten minutes.
+	client := &http.Client{Timeout: 10 * time.Minute, Transport: transport, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 5 || req.URL.Scheme != "https" {
 			return fmt.Errorf("unsafe release redirect")
 		}

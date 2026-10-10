@@ -57,6 +57,8 @@ An active process is not proof of effective protection. Verify scan logs, actual
 
 For GitHub API 403/429, check connectivity and rate limits. An optional `BANHACK233_GITHUB_TOKEN` in the updater environment raises API quota; it is sent only to `api.github.com`, never asset endpoints or update logs. Failed updates retain the installed version and are checked again on the next daily run. Inspect scheduler logs for the result.
 
+Since v0.2.2, asset bodies have a ten-minute download limit, headers thirty seconds, and each update fifteen minutes overall. Linux/Windows scheduler jobs allow twenty minutes. If an older updater times out on a slow link, bootstrap it using the current installer, then rerun `auto-update -enable` to refresh scheduler limits. Failed downloads retain the existing installation.
+
 ## Rollback
 
 ```sh

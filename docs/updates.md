@@ -51,6 +51,8 @@ sudo banhack233 auto-update -disable
 4. 同目录暂存，保存 `.previous` 和 `.update.json`，进程锁防止多个安装器同时执行。
 5. 重启后连续检查三次服务活跃状态；失败尝试恢复旧二进制并启动，任务返回错误。
 
+v0.2.2 起，资产正文下载最多 10 分钟、响应头 30 秒；一次更新总计最多 15 分钟，Linux/Windows 调度最多 20 分钟。若旧版 updater 在慢速网络上提前超时，先用最新版安装脚本升级，再执行 `auto-update -enable` 更新调度时限。有限超时不保证所有网络都能完成下载，失败时保留现有安装。
+
 配置、白名单、通知凭据、状态和报告不被 updater 改写。新版本若不接受旧配置会拒绝安装，需要管理员先完成迁移。SHA256 校验提供资产完整性，不等同于独立发布签名；信任边界仍包括 GitHub 仓库、发布权限和本机管理员。[GitHub latest Release 定义](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)
 
 启动活跃检查不等于业务防护验收；仍需检查近期扫描日志、真实防火墙端口和通知收件。主机断电/磁盘故障等不能保证自动恢复，保留独立备份和控制台入口。

@@ -103,7 +103,7 @@ func Schedule(ctx context.Context, action, configPath string) (string, error) {
 		timer := "/etc/systemd/system/banhack233-update.timer"
 		switch action {
 		case "enable":
-			service := fmt.Sprintf("[Unit]\nDescription=Verified stable release update for banhack233\nWants=network-online.target\nAfter=network-online.target\n\n[Service]\nType=oneshot\nExecStart=%s update -apply -restart -config %s\nTimeoutStartSec=15min\nUMask=0077\n", systemdQuote(exe), systemdQuote(configPath))
+			service := fmt.Sprintf("[Unit]\nDescription=Verified stable release update for banhack233\nWants=network-online.target\nAfter=network-online.target\n\n[Service]\nType=oneshot\nExecStart=%s update -apply -restart -config %s\nTimeoutStartSec=20min\nUMask=0077\n", systemdQuote(exe), systemdQuote(configPath))
 			if err = os.WriteFile(unit, []byte(service), 0644); err != nil {
 				return "", err
 			}
@@ -153,7 +153,7 @@ func Schedule(ctx context.Context, action, configPath string) (string, error) {
 				return "", e
 			}
 			args := "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + path + "\""
-			ps := "$a=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument " + psQuote(args) + "; $t=New-ScheduledTaskTrigger -Daily -At '03:15' -RandomDelay (New-TimeSpan -Hours 1); $s=New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 15); Register-ScheduledTask -TaskName 'banhack233-update' -Action $a -Trigger $t -Settings $s -User SYSTEM -RunLevel Highest -Force | Out-Null"
+			ps := "$a=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument " + psQuote(args) + "; $t=New-ScheduledTaskTrigger -Daily -At '03:15' -RandomDelay (New-TimeSpan -Hours 1); $s=New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 20); Register-ScheduledTask -TaskName 'banhack233-update' -Action $a -Trigger $t -Settings $s -User SYSTEM -RunLevel Highest -Force | Out-Null"
 			err = command(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps)
 		case "disable":
 			err = command(ctx, "schtasks", "/Delete", "/F", "/TN", "banhack233-update")

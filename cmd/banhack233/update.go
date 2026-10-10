@@ -37,7 +37,7 @@ func runUpdate(args []string) error {
 		fmt.Println("Windows update helper started; completion/failure is recorded beside the installed executable in .update.log")
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 	out, err := update.Run(ctx, opts)
 	if out != "" {

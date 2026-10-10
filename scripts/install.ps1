@@ -20,7 +20,7 @@ $target = Join-Path $installDir 'banhack233.exe'
 $config = Join-Path $configDir 'config.json'
 $stage = Join-Path $installDir ('.banhack233-install-' + [Guid]::NewGuid().ToString('N') + '.exe')
 try {
-    Invoke-WebRequest -Uri "$base/$asset" -OutFile $stage -UseBasicParsing -TimeoutSec 180
+    Invoke-WebRequest -Uri "$base/$asset" -OutFile $stage -UseBasicParsing -TimeoutSec 600
     $sums = (Invoke-WebRequest -Uri "$base/SHA256SUMS.txt" -UseBasicParsing -TimeoutSec 60).Content
     $matchesForAsset = @($sums -split '\r?\n' | Where-Object { $_ -match ('^[0-9a-fA-F]{64}\s+\*?' + [regex]::Escape($asset) + '$') })
     if ($matchesForAsset.Count -ne 1) { throw 'Missing or duplicate checksum' }

@@ -5,7 +5,7 @@ VERSION="${1:-latest}"
 REPO="neko233-com/banhack233"
 case "$(uname -s)" in Linux*) OS=linux ;; Darwin*) OS=darwin ;; *) echo 'Use scripts/install.ps1 on Windows.' >&2; exit 1 ;; esac
 case "$(uname -m)" in x86_64|amd64) ARCH=amd64 ;; aarch64|arm64) ARCH=arm64 ;; *) echo 'Unsupported CPU architecture' >&2; exit 1 ;; esac
-fetch() { curl --proto '=https' --tlsv1.2 -fsSL --connect-timeout 15 --max-time 180 "$@"; }
+fetch() { curl --proto '=https' --tlsv1.2 -fsSL --connect-timeout 15 --max-time 600 "$@"; }
 elevate() { if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi; }
 if [ "$VERSION" = latest ]; then
     VERSION="$(fetch "https://api.github.com/repos/$REPO/releases/latest" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)"
