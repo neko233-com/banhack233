@@ -98,16 +98,16 @@ Resolve backup failures before replacing the program. Backups contain notificati
 
 ## Version-pinned installation and rollback
 
-For example, reinstall the published `v0.1.22`, pinning both script and binary versions:
+For example, reinstall the published `v0.2.0`, pinning both script and binary versions:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/neko233-com/banhack233/v0.1.22/scripts/install.sh | sh -s -- v0.1.22
+curl -fsSL https://raw.githubusercontent.com/neko233-com/banhack233/v0.2.0/scripts/install.sh | sh -s -- v0.2.0
 banhack233 version
 sudo systemctl restart banhack233
 sudo journalctl -u banhack233 -n 100 --no-pager
 ```
 
-Existing configuration is preserved. On first installation this script still fetches the example from `main`; preserve a version-specific config for reproducible deployment. The installer does not automatically verify release SHA-256 hashes. Download the selected asset and `SHA256SUMS.txt` from that release and verify them before manual installation when required.
+Installers preserve existing configuration, verify SHA256SUMS before replacing the binary, and generate native platform defaults on first install. For daily upgrades and verified binary rollback, use [the updater](updates-en.md).
 
 To roll back, set `backup_dir` to the verified backup, stop the service, restore binary/config, then restart and verify version, logs, and a new login. Do not automatically restore old state: check version compatibility and live firewall contents together. Restoring state does not recreate kernel firewall rules.
 
@@ -138,10 +138,10 @@ $cfg = Join-Path $env:ProgramData 'banhack233/config.json'
 schtasks /Query /TN banhack233 /V /FO LIST
 ```
 
-For Windows, generate first-time configuration with native `init-config` or review every field rather than copying Linux `/var/log/...` paths. The task runs as SYSTEM and must access the binary/config. On macOS, the shell installer writes `/etc/banhack233/config.json` while the program defaults to `/usr/local/etc/banhack233/config.json`; pass the actual path and review state/log paths and authentication sources.
+Installers now generate native platform configuration. Windows requires administrator PowerShell; its task runs as SYSTEM. macOS defaults to `/usr/local/etc/banhack233/config.json` and reuses a legacy `/etc/banhack233/config.json` if present; pass the actual path explicitly.
 
 ## Routine checks and evidence retention
 
 Check recent successful scanning, repeated `scan error` messages, source-log growth, backend rules, notification receipt, and disk capacity. Application logs default to 10 MB rotation / 30-day retention; reports keep 50 `.txt` files. Record manual scan report paths and move long-term evidence into a separate archive outside count-based pruning.
 
-There is no built-in Prometheus endpoint, retry queue, or performance SLO. On high-volume hosts, measure scan duration, CPU/RSS, state size, and false positives before adjusting intervals or thresholds.
+There is a bounded retry queue, but no Prometheus endpoint or performance SLO. Measure scan duration, CPU/RSS, queue/state size and false positives on your actual host.

@@ -2,7 +2,7 @@
 
 ## 一行安装
 
-Linux / macOS / Windows Git Bash 或 MSYS:
+Linux / macOS:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/neko233-com/banhack233/main/scripts/install.sh | sh
@@ -36,6 +36,18 @@ banhack233 status
 
 仓库文档可能包含未发布内容；线上 HTML 对应网页标明的正式版本，见 [更新记录](CHANGELOG.md)。
 
+## Telegram 与每日自动更新
+
+配置方法见 [通知渠道与重试](docs/notifications.md)、[升级与回滚](docs/updates.md)。公司出口加入 `ignore_ips`；公网 SSH 无法识别远程网卡 MAC 地址。
+
+```sh
+sudo banhack233 safe-ssh -write
+banhack233 config-check
+sudo systemctl restart banhack233
+sudo banhack233 auto-update -enable
+banhack233 auto-update -status
+```
+
 ## 项目定位
 
 `banhack233` 是 Go 编写的主机防护工具，集合 fail2ban / sshguard 风格防爆破、系统巡检、保活、通知和自启动，主要解决这些问题：
@@ -63,18 +75,19 @@ English docs: [README-EN.md](README-EN.md)
 
 1. 系统安全巡检：SSH 策略、防火墙后端、系统更新/重启需求、通知渠道等。
 2. SSH 登录失败扫描：支持 auth.log、secure、Windows OpenSSH event log。
-3. 自动封禁：Linux 有 `nft` 命令时优先使用，否则使用 `iptables` / `ip6tables`，自动规则固定目标 TCP 22；Windows/macOS 的当前限制见 [平台边界](docs/design.md)。
+3. SSH 范围封禁：Linux nft/iptables、Windows 本地目标端口跟随 `ssh_ports`（默认 `[22]`）；macOS 需管理员维护 PF 过滤规则。
 4. root 密码登录支持：不强制禁 root，不强制禁密码登录。
 5. SSH 安全基线：禁空密码、低重试、短登录宽限、保留强密码场景。
 6. SSH 24 小时保活：默认只改 SSH keepalive，不改系统 TCP sysctl。
 7. TCP 系统保活高级项：必须显式 `-tcp` 才会写全局 TCP keepalive/conntrack 参数。
-8. 多渠道通知：控制台、飞书/Lark、Discord、Slack、通用 webhook、邮箱。
+8. 多渠道通知：Telegram、Discord、Slack、飞书/Lark、通用 webhook、TLS 邮箱；独立投递与持久重试队列。
 9. 邮箱 SMTP 自动识别：QQ、163、126、Gmail、Outlook、Hotmail、Live 等。
 10. Linux 恶意程序巡检：挖矿进程、可疑临时目录执行、LD_PRELOAD、cron/systemd 持久化痕迹。
-11. 可选自动处置：`direct_kill=true` 后直接 kill 可疑进程。
+11. 保守清理：手动扫描显式启用 `direct_kill=true` 或 `-kill` 才可结束已知入侵程序名；诊断与定时巡检始终只读。
 12. 开机自启动：Linux systemd、macOS launchd、Windows schtasks。
 13. 安全默认值：`dry_run=true`、`start_at_end=true`、`ignore_ips` 白名单、`direct_kill=false`。
-14. 参考 fail2ban normal 风格的认证失败检测：密码失败、无效用户公钥失败、认证超限、`Invalid user`、`ROOT LOGIN REFUSED`、`Auth fail` 断开均计数；成功登录（`reset_patterns`）清零当前规则下该 IP 的失败计数。支持 IPv4/IPv6 双栈（`<HOST>` 宏自动展开），坏日志 IP 跳过处理。完整状态语义和平台差异见 [工作原理](docs/design.md)。
+14. 默认只计密码错误，按用户分组；成功登录清零并给予 10 分钟宽限。同一读取批次内成功登录优先于封禁，Windows 事件 ID 防止重复计数。
+15. 每日正式版本自动更新、校验、重启检查和回滚备份，见 [升级手册](docs/updates.md)。
 
 ## 是否能作为杀毒软件
 
@@ -104,9 +117,9 @@ English docs: [README-EN.md](README-EN.md)
 | --- | --- | --- | --- |
 | Linux | amd64 / arm64 | `install.sh` | systemd |
 | macOS | amd64 / arm64 | `install.sh` | launchd |
-| Windows | amd64 / arm64 | `install.ps1` 或 Git Bash `install.sh` | schtasks |
+| Windows | amd64 / arm64 | `install.ps1` | schtasks |
 
-以上表示构建和启动支持，不代表各平台防火墙行为完全一致。Windows 当前存在事件重复读取与防火墙端口方向问题；macOS 需要单独配置 PF 过滤规则和日志来源。部署前阅读 [已知限制](docs/design.md)。
+Windows 已实现事件游标和本地目标端口封禁。macOS 仍需配置 PF 和日志来源；构建及自动测试不能代替目标主机验收，见 [平台边界](docs/design.md)。
 
 Linux 默认配置路径：
 
@@ -129,11 +142,7 @@ Windows 默认配置路径：
 %ProgramData%\banhack233\state.json
 ```
 
-非管理员 PowerShell 安装时使用：
-
-```text
-%LOCALAPPDATA%\banhack233\config.json
-```
+Windows 安装和系统任务需要管理员 PowerShell。
 
 ## 快速开始
 
@@ -180,7 +189,7 @@ sudo banhack233 enable-production -config /etc/banhack233/config.json
 sudo systemctl restart banhack233
 ```
 
-`enable-production` 把 `dry_run` 置为 `false`，覆盖 GeoIP/日志配置为平台默认值，设置巡检通知关闭、批量通知启用（60 秒/20 条）；保留规则、白名单和渠道凭据，不重启服务。已有自定义路径时先查看 [字段说明](docs/configuration.md)。`scripts/enable-production.sh` 还会下载缺失数据库、以 `-force` 应用 SSH 基线并尝试重启，执行前需审阅。只切 `dry_run` 也可以手工改配置：
+`enable-production` 只修改 `dry_run=false`，保留其他配置；之后重启守护进程。可选脚本 `scripts/enable-production.sh` 还会修改 SSH 策略，需单独审阅。手工等价方式：
 
 ```sh
 sudo sed -i 's/"dry_run": true/"dry_run": false/' /etc/banhack233/config.json
@@ -189,7 +198,7 @@ sudo systemctl restart banhack233
 
 ## 常用命令
 
-完整参数和副作用见 [命令参考](docs/commands.md)。`test` 会执行真实扫描并写状态，生产配置下可封禁；`status` / `doctor` 会巡检，开启 `direct_kill` 时也可结束可疑进程。观察模式请同时保持 `dry_run=true` 和 `direct_kill=false`。
+完整参数见 [命令参考](docs/commands.md)。`test` 是真实扫描，生产模式可修改防火墙；`config-check`、`status`、`doctor` 不结束进程。
 
 ### 查看整体状态
 
@@ -251,7 +260,7 @@ sudo banhack233 malware-scan -kill
 }
 ```
 
-`direct_kill=true` 会让手动 `malware-scan` 和定时 `doctor` 巡检直接 kill 可疑进程。配置只保留这一个清理开关，够傻瓜，也避免半隔离半清理的歧义。
+`direct_kill` 是唯一清理配置，默认 false，只影响手动 `malware-scan`；定时巡检不杀进程。临时目录、挖矿工具名或命令参数中的关键词本身不足以触发清理；先核对报告。
 
 报告：
 
@@ -405,9 +414,9 @@ sudo banhack233 unban 203.0.113.10
 
 公网 SSH 无法获取客户端电脑的 MAC 地址；MAC 只在本地链路内有效。同一个 NAT 出口下，即使按用户名累计失败，防火墙封 IP 仍会影响所有同事。需要识别具体设备时，使用每台设备独立的 SSH 密钥/证书；密码登录和 root 登录仍受支持。
 
-当前默认规则覆盖密码失败、无效用户公钥失败、认证超限、`Invalid user`、root 登录拒绝和 `Auth fail` 断开；成功登录会重置失败计数。计数基于匹配日志，一次认证过程可能产生多条日志；`max_attempts` 不是严格的密码输入次数。`count_by_user=true` 按 IP+用户名分组，最终封禁仍针对来源 IP，不能替代公司出口白名单。SSH 的 `MaxAuthTries` 只限制单次连接内的认证尝试，不是每分钟新连接数量限制。
+当前默认只计 `Failed password`，按 IP+用户名分组，并在成功登录后清零和宽限；Invalid user、公钥失败、连接数量不计数。共享用户名仍共享计数，最终封禁仍针对来源 IP，公司出口应加入白名单。本程序不安装“每分钟连接次数”丢弃规则。
 
-只希望统计密码失败时，将现有 SSH 规则的 `patterns` 替换为下面这一项，再重启服务；成功登录重置和白名单配置继续生效。升级不会覆盖已有配置：
+旧配置保持不变。原默认规则可用 `safe-ssh -write` 迁移后重启，自定义规则需逐项核对。密码专用表达式如下：
 
 ```json
 "patterns": ["Failed password for(?: invalid user)? (?P<user>\\S+) from <HOST>"]
@@ -436,7 +445,7 @@ sudo banhack233 enable-production -config /etc/banhack233/config.json
 sudo systemctl restart banhack233
 ```
 
-应用生产预设，会覆盖 GeoIP、日志和批量通知等字段；详见 [配置参考](docs/configuration.md)。
+切换生产模式只改 `dry_run`，保留 GeoIP、日志、批量通知和白名单。
 
 ### 测试一次扫描
 
@@ -471,18 +480,19 @@ banhack233 notify-test -message "自定义测试内容"
   "state_path": "/var/lib/banhack233/state.json",
   "dry_run": true,
   "start_at_end": true,
-  "ignore_ips": ["127.0.0.1", "::1"],
+  "ignore_ips": [
+    "127.0.0.1",
+    "::1"
+  ],
   "rules": [
     {
       "name": "ssh-auth-failure",
-      "log_paths": ["/var/log/auth.log", "/var/log/secure"],
+      "log_paths": [
+        "/var/log/auth.log",
+        "/var/log/secure"
+      ],
       "patterns": [
-        "Failed password for(?: invalid user)? (?P<user>\\S+) from <HOST>",
-        "Failed publickey for invalid user (?P<user>\\S+) from <HOST>",
-        "maximum authentication attempts exceeded for (?P<user>\\S+) from <HOST>",
-        "Invalid user (?P<user>\\S+) from <HOST>",
-        "ROOT LOGIN REFUSED FROM <HOST>",
-        "Received disconnect from <HOST> port \\d+:3: Auth fail"
+        "Failed password for(?: invalid user)? (?P<user>\\S+) from <HOST>"
       ],
       "reset_patterns": [
         "Accepted (?:password|publickey|keyboard-interactive) for (?P<user>\\S+) from <HOST>"
@@ -497,7 +507,8 @@ banhack233 notify-test -message "自定义测试内容"
           "广州": 100,
           "Guangzhou": 100
         }
-      }
+      },
+      "success_grace": "10m"
     }
   ],
   "malware": {
@@ -505,7 +516,10 @@ banhack233 notify-test -message "自定义测试内容"
     "direct_kill": false,
     "report_dir": "/var/lib/banhack233/reports",
     "report_keep": 50
-  }
+  },
+  "ssh_ports": [
+    22
+  ]
 }
 ```
 
@@ -525,11 +539,11 @@ banhack233 notify-test -message "自定义测试内容"
 | `ban_time` | 自动封禁时长，到期在下一轮扫描解封；`notify` 模式为告警冷却时间 |
 | `action` | `auto` 自动封 IP、`notify` 仅告警，或自定义命令 |
 | `count_by_user` | `true` 时按 IP+用户名 计数；需 patterns 含 `(?P<user>...)`。降低共享出口 IP 误封 |
-| `patterns` | 失败日志正则列表，命名组 `(?P<ip>...)`/`(?P<user>...)`；`<HOST>` 宏自动展开为 IPv4/IPv6 字面地址（fail2ban 写法兼容）；默认集合与 fail2ban normal 模式对齐 |
+| `patterns` | Go 正则，可用 `<HOST>` 或命名 IP 组；默认只计密码失败 |
 | `reset_patterns` | 成功登录正则；命中后清零该 IP 全部失败计数（fail2ban MLFGAINED 对应语义），防正常登录被历史失败连坐 |
 | `region_rules.max_attempts` | 按 GeoIP 地区覆盖阈值；key 匹配 Country/Region/City，支持中英文（`广州`/`Guangzhou`） |
 | `malware.enabled` | 是否在 doctor/定时审计中加入恶意程序巡检 |
-| `malware.direct_kill` | 是否自动直接 kill 可疑进程，默认 false |
+| `malware.direct_kill` | 手动扫描的已知入侵程序清理开关，默认 false；巡检只读 |
 | `malware.report_dir` | 报告目录 |
 | `malware.report_keep` | 报告保留数量，超过后按 LRU 淘汰 |
 

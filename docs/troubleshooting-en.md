@@ -6,7 +6,7 @@ Identify the failing layer: log input → counters → firewall → notification
 
 | Check | Question | Next step |
 | --- | --- | --- |
-| Actual config | Does `systemctl cat banhack233` show the expected `ExecStart` | Check `-config`; missing files silently load defaults |
+| Actual config | Does `systemctl cat banhack233` show the expected `ExecStart` | Check `-config`; missing files now fail validation |
 | Mode | `dry_run=true` or `action=notify` | These modes intentionally do not apply bans |
 | Whitelist | Is the source covered by an IP/CIDR exception | Ignoring trusted sources is expected |
 | Input | Does the file exist, allow reads, and receive fresh failures | Initial EOF mode skips history; journal-only hosts need text-log routing |
@@ -28,7 +28,7 @@ Inspect only the relevant backend: `sudo nft list table inet banhack233`, or `su
 
 ## Why trigger before five typed failures?
 
-Defaults count several authentication-failure log types. One exchange can emit multiple matching lines. Missing usernames fall back to IP counters, shared usernames share counters, historical replay uses observation time, and duplicate forwarding can inflate counts. Windows events also currently lack deduplication.
+Defaults count only explicit password-failure records. Duplicate forwarding across files, shared usernames, historical replay or custom broad expressions can still inflate counts. Windows event IDs are persisted and deduplicated. Compare actual config with `safe-ssh` and replay a minimal sample.
 
 Replay the actual minimal log sample. For password-only policy, replace `patterns` using the [configuration fragment](configuration-en.md), retaining successful-login reset and office whitelisting.
 
@@ -60,6 +60,7 @@ Test channels independently:
 
 ```sh
 banhack233 notify-test -channel feishu
+banhack233 notify-test -channel telegram
 banhack233 notify-test -channel discord
 banhack233 notify-test -channel slack
 banhack233 notify-test -channel webhook:custom-json
@@ -68,13 +69,13 @@ banhack233 notify-test -channel email
 
 For Feishu/Lark check URL, signing secret, and clock. For Discord/Slack check destination and permissions. For generic webhooks check format, headers, and receiver logs. For email check SMTP authentication; set both host and port for a custom server. Do not paste credentials into issues.
 
-Batch deadlines are checked during scan cycles: the first flush may be earlier than 60 seconds; slow cycles can delay it. `action=notify` bypasses batching. Earlier channel failure prevents later delivery in that call, with no durable retry. Local logs distinguish no trigger, firewall action followed by delivery failure, and receiver rejection. HTTP 2xx and a successful CLI exit are not proof of receipt.
+An independent worker checks batches every second. Each channel has a 10-second deadline; failed channels retry from the durable queue for up to 24 hours. Telegram/Feishu business errors are checked. Confirm actual receipt and inspect queue/log files; see [notifications](notifications-en.md).
 
 ## Scan results and reports
 
-No obvious indicator does not prove an uncompromised host. This is a lightweight Linux helper; temporary-path programs can be legitimate. Review report, executable path, and persistence evidence. Default `direct_kill=false` is observational; enabling it can also allow `status` / `doctor` audits to terminate suspicious processes.
+No obvious indicator proves nothing about absence of compromise. Temporary executables and mining tools may be legitimate. Audits are always read-only; manual cleanup defaults off and only recognized intrusion executable names qualify. Review paths, reports and persistence evidence.
 
-Manual `malware-scan -name incident-review` writes a report and prints its path. Names use second-resolution timestamps; identical prefixes in the same second can overwrite. Use distinct prefixes or separate times for bulk scans. All `.txt` files in the report directory participate in modification-time count pruning; archive long-term evidence separately.
+Manual `malware-scan -name incident-review` writes a report and prints its path. Names use second-resolution timestamps; collisions add a numeric suffix to the report name and never overwrite an existing report. All `.txt` files in the report directory participate in modification-time count pruning; archive long-term evidence separately.
 
 ## Minimal issue report
 

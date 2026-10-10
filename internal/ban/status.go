@@ -81,6 +81,10 @@ func deleteIPTRules(bin, ip string, extra ...string) error {
 
 // Remove is idempotent and uses the backend recorded when the ban was applied.
 func Remove(ip, backend string) error {
+	return RemovePorts(ip, backend, []int{22})
+}
+
+func RemovePorts(ip, backend string, ports []int) error {
 	addr, err := netip.ParseAddr(ip)
 	if err != nil {
 		return fmt.Errorf("invalid IP %q: %w", ip, err)
@@ -117,8 +121,10 @@ func Remove(ip, backend string) error {
 			bin = "ip6tables"
 		}
 		// 移除当前「仅 SSH 端口」规则，以及旧版本插入的全端口规则（可能重复）。
-		if err := deleteIPTRules(bin, target, "-p", "tcp", "--dport", "22", "-j", "DROP"); err != nil {
-			return err
+		for _, port := range portStrings(ports) {
+			if err := deleteIPTRules(bin, target, "-p", "tcp", "--dport", port, "-j", "DROP"); err != nil {
+				return err
+			}
 		}
 		return deleteIPTRules(bin, target, "-j", "DROP")
 	case "pf":

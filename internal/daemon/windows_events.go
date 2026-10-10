@@ -3,24 +3,38 @@
 package daemon
 
 import (
+	"context"
+	"fmt"
 	"os/exec"
-	"strings"
+	"time"
 )
 
-func readWindowsEvents(source string) ([]string, error) {
+func readWindowsEvents(source string, cursor int64, startAtEnd bool) ([]string, int64, error) {
 	if source == "" {
 		source = "OpenSSH/Operational"
 	}
-	out, err := exec.Command("wevtutil", "qe", source, "/c:80", "/rd:true", "/f:text").Output()
+	query := func(args ...string) ([]byte, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return exec.CommandContext(ctx, "wevtutil", append([]string{"qe", source, "/f:xml", "/e:Events"}, args...)...).Output()
+	}
+	latest, err := query("/c:1", "/rd:true")
 	if err != nil {
-		return nil, err
+		return nil, cursor, err
 	}
-	var lines []string
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			lines = append(lines, line)
-		}
+	_, head, err := parseWindowsEvents(latest, 0)
+	if err != nil {
+		return nil, cursor, err
 	}
-	return lines, nil
+	if startAtEnd {
+		return nil, head, nil
+	}
+	if head < cursor {
+		cursor = 0
+	}
+	data, err := query("/c:1024", "/rd:false", fmt.Sprintf("/q:*[System[EventRecordID > %d]]", cursor))
+	if err != nil {
+		return nil, cursor, err
+	}
+	return parseWindowsEvents(data, cursor)
 }

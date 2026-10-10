@@ -50,8 +50,8 @@ func AddIgnoreIPs(path string, items []string) ([]string, error) {
 	if err := json.Unmarshal(b, &document); err != nil {
 		return nil, err
 	}
-	cfg, err := Load(path)
-	if err != nil {
+	cfg := Default()
+	if err := json.Unmarshal(b, &cfg); err != nil {
 		return nil, err
 	}
 	for _, item := range items {

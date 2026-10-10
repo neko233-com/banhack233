@@ -28,7 +28,7 @@ sudo banhack233 ban-list
 
 ## 没输错五次，为什么已经触发
 
-默认规则覆盖多种认证失败，日志事件不等于键盘输入次数。同一认证可能产生多条匹配日志；无用户名事件会回退到 IP 计数，共享账号也会共享用户计数。历史日志全量回放按本轮时间累计，重复日志转发也会增加次数。Windows 事件读取还有重复计数限制。
+默认只计明确密码失败。跨文件重复转发、共享用户名、历史回放或自定义宽泛正则仍会增加计数；Windows 已保存事件 ID 并去重。用 `safe-ssh` 核对策略，再回放最小日志样本。
 
 根据真实原始日志回放确认来源。若需求是“只统计密码错误”，替换规则的 `patterns`，使用 [密码专用片段](configuration.md)，同时保留成功重置和公司出口白名单。
 
@@ -60,6 +60,7 @@ sudo sshd -T -C user=root,addr=203.0.113.10,host=client.example
 
 ```sh
 banhack233 notify-test -channel feishu
+banhack233 notify-test -channel telegram
 banhack233 notify-test -channel discord
 banhack233 notify-test -channel slack
 banhack233 notify-test -channel webhook:custom-json
@@ -68,13 +69,13 @@ banhack233 notify-test -channel email
 
 Feishu/Lark 核对 webhook 与签名 secret、系统时间；Discord/Slack 核对对应渠道地址与权限；通用 webhook 核对 `format`、headers 和接收端日志。邮箱核对 SMTP 授权方式，使用自定义服务器时同时填 host 和 port。不要在工单里粘贴凭据。
 
-批次由扫描循环检查到期；首次可能早于 60 秒，慢扫描可能更晚。`action=notify` 不走批量。前一渠道错误会阻断本次后续渠道；没有持久重试。检查本地应用日志区分“未触发”“已封禁但投递失败”“接收端拒绝”。HTTP 2xx 不保证机器人业务侧成功，也不能把 CLI 没报错当作收到通知。
+独立工作协程每秒检查批次，每渠道 10 秒超时；失败渠道从持久队列重试，最长 24 小时。已检查 Telegram/飞书业务错误。仍应核对实收、队列与日志，见 [通知排障](notifications.md)。
 
 ## 扫描结果与报告
 
-“没有明显特征”不证明主机无入侵；该能力是轻量 Linux 辅助。可疑临时目录程序也可能是正常业务工具，先核对报告、进程路径和持久化来源。`direct_kill=false` 是默认值；若已开启，`status` / `doctor` 的巡检也可能结束可疑进程。
+“没有明显特征”不能证明主机无入侵。临时目录程序和挖矿工具可能合法；巡检始终只读，手动清理默认关闭且限定已知入侵程序名。先核对路径、报告和持久化证据。
 
-手动 `malware-scan -name incident-review` 会写报告；命令输出的路径是依据。报告名精确到秒，同名同秒扫描可能覆盖，批量调用请用不同前缀或错开时间。报告目录中所有 `.txt` 都参与按修改时间保留 N 份的淘汰，长期证据请复制到独立归档。
+手动 `malware-scan -name incident-review` 会写报告；命令输出的路径是依据。报告名精确到秒，同名同秒会在名字后增加序号，避免覆盖已有报告。报告目录中所有 `.txt` 都参与按修改时间保留 N 份的淘汰，长期证据请复制到独立归档。
 
 ## 最小问题报告
 

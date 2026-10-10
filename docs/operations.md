@@ -98,16 +98,16 @@ printf 'Backup: %s\n' "$backup_dir"
 
 ## 指定版本安装与回滚
 
-例如重新安装已发布的 `v0.1.22`，同时固定安装脚本版本和二进制版本：
+例如重新安装已发布的 `v0.2.0`，同时固定安装脚本版本和二进制版本：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/neko233-com/banhack233/v0.1.22/scripts/install.sh | sh -s -- v0.1.22
+curl -fsSL https://raw.githubusercontent.com/neko233-com/banhack233/v0.2.0/scripts/install.sh | sh -s -- v0.2.0
 banhack233 version
 sudo systemctl restart banhack233
 sudo journalctl -u banhack233 -n 100 --no-pager
 ```
 
-安装器保留已存在的配置，但首次创建配置时该版本脚本仍从 `main` 下载样例；严格可重复部署请自行保存版本对应配置。安装器不会自动校验发布资产的 SHA-256；需要时从该 Release 下载 `SHA256SUMS.txt` 与目标资产后先校验，再安装。
+安装器保留已有配置，替换二进制前检查 SHA256SUMS，首次安装由本平台程序生成配置。每日更新与校验回滚见 [升级手册](updates.md)。
 
 回滚使用刚才备份的二进制和配置；将 `backup_dir` 设置为已核实的那次备份路径，在同一维护窗口停止服务后恢复，最后重启并检查版本、日志和新登录。不要自动覆盖状态：版本兼容性和实际防火墙状态需一起核对；恢复旧状态不会自动恢复内核防火墙规则。
 
@@ -128,7 +128,7 @@ banhack233 version
 
 ## Windows 与 macOS 的启动路径
 
-Windows 管理员 PowerShell 安装通常使用以下路径；非管理员安装需改成安装器输出的 LocalAppData 路径。示例只建立启动配置，不能代替平台封禁验收。
+Windows 需要管理员 PowerShell，使用以下路径；示例只建立启动配置，不能代替目标主机封禁验收。
 
 ```powershell
 $exe = Join-Path $env:ProgramFiles 'banhack233/banhack233.exe'
@@ -138,10 +138,10 @@ $cfg = Join-Path $env:ProgramData 'banhack233/config.json'
 schtasks /Query /TN banhack233 /V /FO LIST
 ```
 
-首次 Windows 配置应使用本机 `init-config` 生成或逐项校对，不能原样使用含 `/var/log/...` 的 Linux 样例。计划任务以 SYSTEM 运行，所用二进制和配置必须对该账号可访问。macOS 安装脚本写 `/etc/banhack233/config.json`，程序默认读 `/usr/local/etc/banhack233/config.json`；显式指定实际配置，并校对状态/日志路径和日志来源。
+安装器生成原生平台配置；Windows 任务以 SYSTEM 运行。macOS 默认使用 `/usr/local/etc/banhack233/config.json`，发现旧 `/etc/banhack233/config.json` 时沿用；显式指定实际路径，并配置正确的认证日志来源。
 
 ## 日常检查与事件留存
 
 关注最近一轮成功扫描、连续 `scan error`、日志是否增长、预期后端规则、通知实收和磁盘剩余空间。应用日志默认 10 MB 轮转、旧文件保留 30 天；报告默认保留 50 份 `.txt`。手动扫描必须记录输出的报告路径；需要长期留存的报告复制到独立归档目录，避免被数量淘汰。
 
-没有内置 Prometheus 端点、告警重试队列或性能 SLO。高日志量环境应测量实际扫描时长、进程 CPU/RSS、状态文件大小和误报率，再决定轮询周期与阈值。
+已提供有界重试队列，尚无 Prometheus 端点或性能 SLO。应在实际主机测量扫描时长、CPU/RSS、队列/状态大小及误报率。

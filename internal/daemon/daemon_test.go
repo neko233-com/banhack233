@@ -162,7 +162,7 @@ func TestNotifyOnlyAndWhitelistAcrossScans(t *testing.T) {
 	}
 }
 
-func TestDefaultRuleMatchesFail2banNormalMode(t *testing.T) {
+func TestDefaultRuleCountsOnlyPasswordFailures(t *testing.T) {
 	matchers, err := compilePatterns(config.Default().Rules[0].Patterns)
 	if err != nil {
 		t.Fatal(err)
@@ -171,11 +171,6 @@ func TestDefaultRuleMatchesFail2banNormalMode(t *testing.T) {
 	for _, tc := range []struct{ line, user string }{
 		{"Failed password for root from 192.0.2.3 port 12345 ssh2", "root"},
 		{"Failed password for invalid user admin from 192.0.2.3 port 12345 ssh2", "admin"},
-		{"Failed publickey for invalid user admin from 192.0.2.3 port 12345 ssh2", "admin"},
-		{"error: maximum authentication attempts exceeded for root from 192.0.2.3 port 12345 ssh2 [preauth]", "root"},
-		{"Invalid user admin from 192.0.2.3 port 12345", "admin"},
-		{"ROOT LOGIN REFUSED FROM 192.0.2.3", ""},
-		{"Received disconnect from 192.0.2.3 port 54321:3: Auth fail", ""},
 	} {
 		ip, user := matchIPUser(matchers, tc.line)
 		if ip != "192.0.2.3" || user != tc.user {
@@ -184,6 +179,11 @@ func TestDefaultRuleMatchesFail2banNormalMode(t *testing.T) {
 	}
 	// 不计入：正常登录、断开、有效用户公钥失败、握手层事件（防误封底线）。
 	for _, line := range []string{
+		"Invalid user admin from 192.0.2.3 port 12345",
+		"Failed publickey for invalid user admin from 192.0.2.3 port 12345 ssh2",
+		"maximum authentication attempts exceeded for root from 192.0.2.3 port 12345 ssh2",
+		"ROOT LOGIN REFUSED FROM 192.0.2.3",
+		"Received disconnect from 192.0.2.3 port 12345:3: Auth fail",
 		"Accepted password for root from 192.0.2.3 port 12345 ssh2",
 		"Accepted publickey for root from 192.0.2.3 port 12345 ssh2",
 		"Failed publickey for root from 192.0.2.3 port 12345 ssh2",
@@ -200,8 +200,6 @@ func TestDefaultRuleMatchesFail2banNormalMode(t *testing.T) {
 	for _, tc := range []struct{ line, user string }{
 		{"Failed password for root from 2001:db8::1 port 22 ssh2", "root"},
 		{"Failed password for invalid user admin from 2001:db8::dead:beef port 22 ssh2", "admin"},
-		{"Invalid user admin from fd00::1 port 22", "admin"},
-		{"error: maximum authentication attempts exceeded for root from 2001:db8::1 port 22 ssh2 [preauth]", "root"},
 	} {
 		ip, user := matchIPUser(matchers, tc.line)
 		if !strings.Contains(ip, ":") || user != tc.user {

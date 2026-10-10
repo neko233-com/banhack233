@@ -21,7 +21,7 @@ sudo banhack233 whitelist -config /etc/banhack233/config.json 203.0.113.10
 | `autostart-status` | 无 | 查询自启动配置；Windows 当前不判断任务是否正在运行 |
 | `whitelist` | `-config`，无 IP 参数 | 显示白名单 |
 
-**`status` / `doctor` 不是在任何配置下都只读。** Linux 巡检会调用恶意程序扫描；`malware.enabled=true` 且 `direct_kill=true` 时可结束可疑进程。仅观察时保持 `direct_kill=false`。`dry_run` 只控制防火墙动作。
+`config-check`、`status`、`doctor` 和定时巡检不会杀进程。`dry_run` 控制防火墙动作；手动恶意程序清理需要显式策略。
 
 ## 配置与守护进程
 
@@ -30,9 +30,9 @@ sudo banhack233 whitelist -config /etc/banhack233/config.json 203.0.113.10
 | `init-config` | `-config`、`-force` | 写本机平台默认配置；已有文件默认拒绝覆盖，`-force` 才覆盖 |
 | `run` | `-config` | 前台持续运行，写状态和日志；按配置封禁、巡检、通知 |
 | `test` | `-config` | 执行一轮与守护进程相同的扫描；会写状态，生产配置下可真实封禁或解封 |
-| `enable-production` | `-config` | 写生产配置预设，不重启服务；具体覆盖字段见 [配置参考](configuration.md) |
+| `enable-production` | `-config` | 只改 dry_run=false，需要重启 |
 | `whitelist` | `-config`、一个或多个 IP/CIDR | 永久追加到配置；重启守护进程后生效，不会创建系统防火墙 ACCEPT 规则 |
-| `unban <ip>` | 仅一个 IP | 使用当前自动选择的后端解除封禁；不修改白名单或状态文件 |
+| `unban [-config 路径] <ip>` | 仅一个 IP | 按配置的 SSH 端口和旧默认 22 解除封禁；不修改白名单或状态文件 |
 
 没有 `whitelist remove` 子命令。移除白名单时手工编辑 `ignore_ips` 并重启。`unban` 是临时防火墙操作；希望持续免封，应添加白名单。
 
@@ -67,7 +67,7 @@ banhack233 notify-test -channel feishu,email -message 'banhack233 channel check'
 banhack233 notify-test -channel webhook:custom-json
 ```
 
-渠道选择支持 `console,feishu,discord,slack,email,webhook` 和 `webhook:<name>`。手动扫描也会遵守 `direct_kill=true`，省略 `-kill` 不会覆盖它。非 Linux 扫描会报告不支持，不应解释为主机安全。
+渠道选择支持 `console,telegram,feishu,discord,slack,email,webhook` 和 `webhook:<name>`。手动扫描也会遵守 `direct_kill=true`，省略 `-kill` 不会覆盖它。非 Linux 扫描会报告不支持，不应解释为主机安全。
 
 ## 自启动
 
@@ -83,8 +83,19 @@ sudo banhack233 uninstall-autostart
 
 ## 退出与验证
 
-CLI 返回错误时退出码为 1。守护进程遇到单轮错误会记录 `scan error:` 并继续循环，因此“进程活着”不代表扫描成功。`test` 的返回结果也不能代替通知收件验证：结束时刷新批次的错误目前没有反馈到其返回值。
+CLI 错误退出码为 1。单轮错误会记录并继续循环，通知投递失败不会停止日志读取；`test` 会返回最终队列刷新错误。只校验配置请用 `config-check`。
 
 检查 JSON 语法可使用 `jq empty /etc/banhack233/config.json`；这不检查字段名、正则、文件权限或配置是否适合生产。完整验证使用 [隔离日志回放](operations.md)，不要把生产 `test` 当成无副作用的 lint。
 
 源码依据：[命令入口](../cmd/banhack233/main.go)、[自启动](../internal/autostart/autostart.go)、[系统巡检](../internal/audit/audit.go)。
+
+## 升级与迁移
+
+| 命令 | 作用 |
+| --- | --- |
+| `config-check -config path` | 严格只读校验 |
+| `safe-ssh [-write] [-config path]` | 预览/应用原默认规则密码专用迁移，保留 `.before-safe-ssh` 备份 |
+| `update [-apply] [-restart] [-rollback] [-config path]` | 默认仅检查；显式安装或恢复校验过的旧二进制 |
+| `auto-update [-enable/-disable/-status] [-config path]` | 系统每日计划任务；不带动作时显示状态 |
+
+前提条件、各平台命令与回滚见 [升级手册](updates.md)。

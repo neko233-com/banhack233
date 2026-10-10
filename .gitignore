@@ -13,6 +13,21 @@ site/
 /state.json
 /reports/
 /.local/
+*.notifications.json
+*.update.json
+*.update.lock
+*.state.lock
+*.before-safe-ssh
+*.installer-backup
+*.previous
+*.update.log
+*.update.log.old
+*.update-launcher.log
+.banhack233-update-*
+.banhack233-helper-*
+.notifications-*
+.state-*
+/banhack233-update.ps1
 
 # Local test / profiling outputs.
 /*.test

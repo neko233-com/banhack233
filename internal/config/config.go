@@ -1,10 +1,14 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
-	"errors"
+	"fmt"
+	"io"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -13,6 +17,7 @@ import (
 )
 
 type Config struct {
+	SSHPorts      []int           `json:"ssh_ports"`
 	Interval      Duration        `json:"interval"`
 	AuditInterval Duration        `json:"audit_interval"`
 	StatePath     string          `json:"state_path"`
@@ -47,6 +52,7 @@ type Rule struct {
 	// ResetPatterns: 命中后清零该 IP 的全部失败计数（成功登录），
 	// 对应 fail2ban 的 MLFGAINED 语义，避免正常登录者被历史失败连坐。
 	ResetPatterns []string     `json:"reset_patterns,omitempty"`
+	SuccessGrace  Duration     `json:"success_grace"`
 	RegionRules   *RegionRules `json:"region_rules,omitempty"`
 }
 
@@ -57,14 +63,25 @@ type RegionRules struct {
 }
 
 type NotificationSet struct {
-	Feishu   WebhookConfig     `json:"feishu"`
-	Discord  WebhookConfig     `json:"discord"`
-	Slack    WebhookConfig     `json:"slack"`
-	Webhooks []WebhookTarget   `json:"webhooks"`
-	Email    EmailConfig       `json:"email"`
-	Console  bool              `json:"console"`
-	Audit    bool              `json:"audit"`
-	Batch    NotifyBatchConfig `json:"batch"`
+	Telegram  TelegramConfig    `json:"telegram"`
+	QueuePath string            `json:"queue_path,omitempty"`
+	Feishu    WebhookConfig     `json:"feishu"`
+	Discord   WebhookConfig     `json:"discord"`
+	Slack     WebhookConfig     `json:"slack"`
+	Webhooks  []WebhookTarget   `json:"webhooks"`
+	Email     EmailConfig       `json:"email"`
+	Console   bool              `json:"console"`
+	Audit     bool              `json:"audit"`
+	Batch     NotifyBatchConfig `json:"batch"`
+}
+
+type TelegramConfig struct {
+	Enabled             bool   `json:"enabled"`
+	BotToken            string `json:"bot_token,omitempty"`
+	BotTokenEnv         string `json:"bot_token_env,omitempty"`
+	ChatID              string `json:"chat_id"`
+	MessageThreadID     int64  `json:"message_thread_id,omitempty"`
+	DisableNotification bool   `json:"disable_notification,omitempty"`
 }
 
 type GeoIPConfig struct {
@@ -166,6 +183,7 @@ func DefaultPath() string {
 
 func Default() Config {
 	return Config{
+		SSHPorts:      []int{22},
 		Interval:      Duration{30 * time.Second},
 		AuditInterval: Duration{time.Hour},
 		StatePath:     defaultStatePath(),
@@ -174,31 +192,25 @@ func Default() Config {
 		IgnoreIPs:     []string{"127.0.0.1", "::1"},
 		Rules: []Rule{
 			{
-				Name: "ssh-auth-failure",
+				Name:     "ssh-auth-failure",
 				LogPaths: defaultAuthLogs(),
-				// 与 fail2ban normal 模式对齐：覆盖密码/无效用户公钥/超限认证/
-				// 裸 Invalid user/ROOT LOGIN REFUSED/Auth fail 断开等真实认证失败。
-				// <HOST> 宏展开为 IPv4|IPv6，双栈攻击者同样计数。
+				// Count only explicit password failures; companion log messages are not attempts.
 				Patterns: []string{
 					`Failed password for(?: invalid user)? (?P<user>\S+) from <HOST>`,
-					`Failed publickey for invalid user (?P<user>\S+) from <HOST>`,
-					`maximum authentication attempts exceeded for (?P<user>\S+) from <HOST>`,
-					`Invalid user (?P<user>\S+) from <HOST>`,
-					`ROOT LOGIN REFUSED FROM <HOST>`,
-					`Received disconnect from <HOST> port \d+:3: Auth fail`,
 				},
 				// 成功登录清零该 IP 的失败计数（fail2ban MLFGAINED 对应语义）。
 				ResetPatterns: []string{
 					`Accepted (?:password|publickey|keyboard-interactive) for (?P<user>\S+) from <HOST>`,
 				},
-				MaxAttempts: 5,
-				FindTime:    Duration{10 * time.Minute},
-				BanTime:     Duration{1 * time.Hour},
-				Action:      "auto",
-				CountByUser: true,
+				MaxAttempts:  5,
+				FindTime:     Duration{10 * time.Minute},
+				BanTime:      Duration{1 * time.Hour},
+				Action:       "auto",
+				CountByUser:  true,
+				SuccessGrace: Duration{10 * time.Minute},
 				RegionRules: &RegionRules{
 					MaxAttempts: map[string]int{
-						"广州":       100,
+						"广州":        100,
 						"Guangzhou": 100,
 					},
 				},
@@ -249,14 +261,28 @@ func Load(path string) (Config, error) {
 	}
 	cfg := Default()
 	b, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return cfg, nil
-	}
 	if err != nil {
 		return cfg, err
 	}
-	if err := json.Unmarshal(b, &cfg); err != nil {
+	if !bytes.HasPrefix(bytes.TrimSpace(b), []byte("{")) {
+		return cfg, fmt.Errorf("config must be a JSON object")
+	}
+	// encoding/json otherwise reuses populated slice elements and silently inherits
+	// fields from the default rule into unrelated custom rules.
+	var supplied map[string]json.RawMessage
+	if err := json.Unmarshal(b, &supplied); err != nil {
 		return cfg, err
+	}
+	if _, ok := supplied["rules"]; ok {
+		cfg.Rules = nil
+	}
+	decoder := json.NewDecoder(bytes.NewReader(b))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&cfg); err != nil {
+		return cfg, err
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return cfg, fmt.Errorf("config must contain exactly one JSON object")
 	}
 	if err := cfg.Normalize(); err != nil {
 		return cfg, err
@@ -265,6 +291,14 @@ func Load(path string) (Config, error) {
 }
 
 func (c *Config) Normalize() error {
+	if len(c.SSHPorts) == 0 {
+		c.SSHPorts = []int{22}
+	}
+	for _, port := range c.SSHPorts {
+		if port < 1 || port > 65535 {
+			return fmt.Errorf("invalid ssh_ports entry %d", port)
+		}
+	}
 	for i, item := range c.IgnoreIPs {
 		item = strings.TrimSpace(item)
 		if err := validateIgnoreIP(item); err != nil {
@@ -280,6 +314,35 @@ func (c *Config) Normalize() error {
 	}
 	if strings.TrimSpace(c.StatePath) == "" {
 		c.StatePath = defaultStatePath()
+	}
+	if c.Notifications.QueuePath == "" {
+		c.Notifications.QueuePath = c.StatePath + ".notifications.json"
+	}
+	if filepath.Clean(c.Notifications.QueuePath) == filepath.Clean(c.StatePath) {
+		return fmt.Errorf("notification queue_path must differ from state_path")
+	}
+	if c.Notifications.Telegram.Enabled && (c.Notifications.Telegram.ChatID == "" || (c.Notifications.Telegram.BotToken == "" && c.Notifications.Telegram.BotTokenEnv == "")) {
+		return fmt.Errorf("Telegram requires chat_id and bot_token or bot_token_env")
+	}
+	for _, item := range []WebhookConfig{c.Notifications.Feishu, c.Notifications.Discord, c.Notifications.Slack} {
+		if item.Enabled {
+			if err := validateURL(item.URL); err != nil {
+				return err
+			}
+		}
+	}
+	for _, item := range c.Notifications.Webhooks {
+		if !item.Enabled {
+			continue
+		}
+		if err := validateURL(item.URL); err != nil {
+			return err
+		}
+		switch item.Format {
+		case "", "text", "json", "feishu", "lark", "discord", "slack":
+		default:
+			return fmt.Errorf("unknown webhook format %q", item.Format)
+		}
 	}
 	if strings.TrimSpace(c.Malware.ReportDir) == "" {
 		c.Malware.ReportDir = defaultReportPath()
@@ -309,10 +372,23 @@ func (c *Config) Normalize() error {
 			c.Notifications.Batch.MaxItems = 20
 		}
 	}
+	names := map[string]bool{}
 	for i := range c.Rules {
 		r := &c.Rules[i]
 		if r.Name == "" {
 			r.Name = "rule"
+		}
+		if names[r.Name] || strings.ContainsAny(r.Name, "|\r\n") {
+			return fmt.Errorf("rule names must be unique and contain no | or newline: %q", r.Name)
+		}
+		names[r.Name] = true
+		if r.SuccessGrace.Duration < 0 {
+			return fmt.Errorf("rule %s: success_grace cannot be negative", r.Name)
+		}
+		for _, pattern := range append(append([]string{}, r.Patterns...), r.ResetPatterns...) {
+			if _, err := regexp.Compile(strings.ReplaceAll(pattern, "<HOST>", `(?P<ip>[0-9a-fA-F:.]+)`)); err != nil {
+				return fmt.Errorf("rule %s: %w", r.Name, err)
+			}
 		}
 		if r.MaxAttempts <= 0 {
 			r.MaxAttempts = 5
@@ -346,12 +422,21 @@ func (c *Config) Normalize() error {
 	return nil
 }
 
+func validateURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return fmt.Errorf("enabled notification channel requires an HTTP(S) URL")
+	}
+	return nil
+}
+
 // MatchRegion 在 region_rules 中查找命中地区，返回覆盖后的 max_attempts。
 func MatchRegion(rules *RegionRules, loc geoip.Location) (int, bool) {
 	if rules == nil || len(rules.MaxAttempts) == 0 {
 		return 0, false
 	}
 	places := []string{loc.City, loc.Region, loc.Country}
+	matched := 0
 	for key, max := range rules.MaxAttempts {
 		nk := normalizePlace(key)
 		if nk == "" {
@@ -363,11 +448,14 @@ func MatchRegion(rules *RegionRules, loc geoip.Location) (int, bool) {
 				continue
 			}
 			if np == nk || strings.Contains(np, nk) || strings.Contains(nk, np) {
-				return max, true
+				// Overlapping regions always choose the most forgiving threshold.
+				if max > matched {
+					matched = max
+				}
 			}
 		}
 	}
-	return 0, false
+	return matched, matched > 0
 }
 
 func normalizePlace(s string) string {

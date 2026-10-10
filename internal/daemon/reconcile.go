@@ -72,6 +72,7 @@ func reconcileBans(cfg config.Config, st *state, now time.Time, remove func(stri
 		}
 		delete(st.Bans, item.key)
 		delete(st.BanActions, item.key)
+		delete(st.BanPorts, item.key)
 		delete(st.Hits, item.key)
 	}
 	for key, until := range st.Cooldowns {

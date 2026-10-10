@@ -18,7 +18,7 @@ Tags must contain three non-negative integers, with no leading zeroes, prereleas
 ## Deployment gates
 
 1. Validate the tag, its commit, and the latest stable Release. Reject moved tags.
-2. Call reusable CI for Linux/Windows tests, Go vet, Linux race tests, ShellCheck, documentation tests, and release-guard tests.
+2. Call reusable CI for Linux/macOS/Windows tests, Go vet, Linux race tests, ShellCheck, documentation tests, and release-guard tests.
 3. Build all six Linux/macOS/Windows amd64/arm64 binaries, bilingual HTML, an offline docs archive, and checksums.
 4. Recheck the tag and latest version. Create a draft Release, upload complete assets, then publish it as latest.
 5. The Pages job uses `needs` to wait for successful preceding jobs, rechecks the published Release and latest tag, then deploys the HTML artifact from that same run. Rerunning only deployment repeats this check.

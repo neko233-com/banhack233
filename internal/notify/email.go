@@ -1,12 +1,14 @@
 package notify
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"mime"
 	"net"
 	"net/smtp"
 	"strings"
+	"time"
 
 	"github.com/neko233-com/banhack233/internal/config"
 )
@@ -37,6 +39,15 @@ func InferSMTP(addr string) (SMTPPreset, bool) {
 }
 
 func SendEmail(cfg config.EmailConfig, subject, textBody, htmlBody string) error {
+	return sendEmailContext(context.Background(), cfg, subject, textBody, htmlBody)
+}
+
+func sendEmailContext(ctx context.Context, cfg config.EmailConfig, subject, textBody, htmlBody string) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if strings.ContainsAny(cfg.From+cfg.To+subject, "\r\n") {
+		return fmt.Errorf("mail headers cannot contain newlines")
+	}
 	if strings.TrimSpace(cfg.From) == "" || strings.TrimSpace(cfg.To) == "" {
 		return fmt.Errorf("email from/to required")
 	}
@@ -45,15 +56,68 @@ func SendEmail(cfg config.EmailConfig, subject, textBody, htmlBody string) error
 		if !ok {
 			return fmt.Errorf("unknown smtp preset for %s; set smtp_host and smtp_port", cfg.From)
 		}
-		cfg.SMTPHost = preset.Host
-		cfg.SMTPPort = preset.Port
+		if cfg.SMTPHost == "" {
+			cfg.SMTPHost = preset.Host
+		}
+		if cfg.SMTPPort == 0 {
+			cfg.SMTPPort = preset.Port
+		}
 	}
 	msg := buildEmailMessage(cfg.From, cfg.To, subject, textBody, htmlBody)
 	auth := smtp.PlainAuth("", cfg.From, cfg.Password, cfg.SMTPHost)
-	if cfg.SMTPPort == 465 {
-		return sendImplicitTLS(cfg, auth, msg)
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort(cfg.SMTPHost, fmt.Sprint(cfg.SMTPPort)))
+	if err != nil {
+		return err
 	}
-	return smtp.SendMail(net.JoinHostPort(cfg.SMTPHost, fmt.Sprint(cfg.SMTPPort)), auth, cfg.From, recipients(cfg.To), msg)
+	defer conn.Close()
+	deadline, _ := ctx.Deadline()
+	_ = conn.SetDeadline(deadline)
+	rawConn := conn
+	stop := context.AfterFunc(ctx, func() { _ = rawConn.Close() })
+	defer stop()
+	tlsConfig := &tls.Config{ServerName: cfg.SMTPHost, MinVersion: tls.VersionTLS12}
+	if cfg.SMTPPort == 465 {
+		tlsConn := tls.Client(conn, tlsConfig)
+		if err := tlsConn.HandshakeContext(ctx); err != nil {
+			return err
+		}
+		conn = tlsConn
+	}
+	client, err := smtp.NewClient(conn, cfg.SMTPHost)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	if cfg.SMTPPort != 465 {
+		if ok, _ := client.Extension("STARTTLS"); !ok {
+			return fmt.Errorf("SMTP server must support STARTTLS")
+		}
+		if err := client.StartTLS(tlsConfig); err != nil {
+			return err
+		}
+	}
+	if err := client.Auth(auth); err != nil {
+		return err
+	}
+	if err := client.Mail(cfg.From); err != nil {
+		return err
+	}
+	for _, to := range recipients(cfg.To) {
+		if err := client.Rcpt(to); err != nil {
+			return err
+		}
+	}
+	w, err := client.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(msg); err != nil {
+		return err
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	return client.Quit()
 }
 
 func buildEmailMessage(from, to, subject, textBody, htmlBody string) []byte {
@@ -88,41 +152,6 @@ func buildEmailMessage(from, to, subject, textBody, htmlBody string) []byte {
 	body.WriteString(boundary)
 	body.WriteString("--\r\n")
 	return []byte(body.String())
-}
-
-func sendImplicitTLS(cfg config.EmailConfig, auth smtp.Auth, msg []byte) error {
-	conn, err := tls.Dial("tcp", net.JoinHostPort(cfg.SMTPHost, fmt.Sprint(cfg.SMTPPort)), &tls.Config{ServerName: cfg.SMTPHost, MinVersion: tls.VersionTLS12})
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	client, err := smtp.NewClient(conn, cfg.SMTPHost)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-	if err := client.Auth(auth); err != nil {
-		return err
-	}
-	if err := client.Mail(cfg.From); err != nil {
-		return err
-	}
-	for _, to := range recipients(cfg.To) {
-		if err := client.Rcpt(to); err != nil {
-			return err
-		}
-	}
-	w, err := client.Data()
-	if err != nil {
-		return err
-	}
-	if _, err := w.Write(msg); err != nil {
-		return err
-	}
-	if err := w.Close(); err != nil {
-		return err
-	}
-	return client.Quit()
 }
 
 func recipients(raw string) []string {

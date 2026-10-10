@@ -69,6 +69,13 @@ func Test(ctx context.Context, cfg config.NotificationSet, opts TestOptions) ([]
 			appendResult("discord", false, "", err)
 		}
 	}
+	if filter.match("telegram") {
+		if !cfg.Telegram.Enabled {
+			appendResult("telegram", true, "disabled", nil)
+		} else {
+			appendResult("telegram", false, "", sendTelegram(ctx, cfg.Telegram, alert))
+		}
+	}
 
 	if filter.match("slack") {
 		if !cfg.Slack.Enabled {
@@ -113,7 +120,7 @@ func Test(ctx context.Context, cfg config.NotificationSet, opts TestOptions) ([]
 	}
 
 	if len(results) == 0 {
-		return nil, fmt.Errorf("no matching notification channels; use -channel console,feishu,discord,slack,email,webhook")
+		return nil, fmt.Errorf("no matching notification channels; use -channel console,telegram,feishu,discord,slack,email,webhook")
 	}
 
 	attempted := 0

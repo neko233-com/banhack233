@@ -7,10 +7,10 @@ This page describes current defaults, loading semantics, and limits. See the [co
 - Configuration is JSON: no comments, trailing commas, or environment-variable expansion. Durations are strings such as `"30s"`, `"10m"`, and `"24h"`; `"1d"` is invalid.
 - The program loads defaults, then overlays the file. Omitted top-level fields retain defaults. An explicit `rules` array replaces the default rules; individual array entries do not inherit the default SSH template.
 - A custom rule without `count_by_user` therefore uses `false`; without `reset_patterns`, it has no successful-login reset. A rule fragment is not a complete rule.
-- A missing config file returns defaults rather than an error. Confirm the file exists and inspect the service's actual `-config` argument.
-- Unknown JSON fields are currently ignored. A typo such as `dryrun` does not set `dry_run`. There is no dedicated strict `config-check` command.
+- Missing files, unknown fields, malformed regexes, invalid ports and duplicate rule names are errors. Run `config-check` before restarting.
+- `config-check` validates without scanning, changing the firewall or sending messages.
 - The daemon reads configuration at startup, with no hot reload. Restart it after changes and use the same config path for administrative commands.
-- `init-config` generates platform-specific defaults. The repository example primarily targets Linux; some installer paths differ from program defaults. See [platform limits](design-en.md).
+- Installers call the platform binary’s `init-config`; existing files remain unchanged.
 
 ## Top-level fields
 
@@ -20,11 +20,11 @@ This page describes current defaults, loading semantics, and limits. See the [co
 | `audit_interval` | `"1h"` | Audit eligibility checked during scan cycles, not by an independent timer |
 | `state_path` | Platform state directory + `state.json` | Log offsets, hit timestamps, bans, backends, cooldowns, and last audit |
 | `dry_run` | `true` | Neither applies nor releases real firewall bans; still writes state/logs and sends notifications. Not a global read-only switch |
-| `start_at_end` | `true` | First encounter with a text-log path starts at EOF; existing offsets are reused. Does not apply to Windows events |
+| `start_at_end` | `true` | First text read starts at EOF; first Windows query records the newest event ID without replay |
 | `ignore_ips` | `["127.0.0.1", "::1"]` | IPv4, IPv6, or CIDR, not hostnames. An explicit array replaces this list |
 | `rules` | One SSH authentication rule | `[]` stops rule scanning, but does not disable audits or immediately remove existing firewall entries |
 
-Do not run two daemons, or a daemon and `test`, against the same state file. Atomic file replacement does not provide a cross-process lock.
+A process lock rejects concurrent daemons or `test` using the same state path. Keep independent state and queue paths for replay tests.
 
 ## Rule fields
 
@@ -32,7 +32,7 @@ Do not run two daemons, or a daemon and `test`, against the same state file. Ato
 | --- | --- | --- |
 | `name` | `ssh-auth-failure`; empty becomes `rule` | Part of state identity; use unique names without `|` |
 | `log_paths` | Platform authentication logs | Linux chooses `auth.log` if present, otherwise `secure`; the example lists both. Missing files are skipped |
-| `patterns` | Six authentication-failure patterns | Go regular expressions; prefer one `<HOST>` or named `(?P<ip>...)`, optionally `(?P<user>...)` |
+| `patterns` | One explicit password-failure expression | Go regexp; one `<HOST>` or named IP group; optional username group |
 | `reset_patterns` | `Accepted ... from <HOST>` | Processed first; clears all username hit counters for that IP within this rule, without removing existing bans |
 | `max_attempts` | `5` | Triggers at the threshold; counts matching log events, not exactly typed passwords |
 | `find_time` | `"10m"` | Window uses observation time, not historical timestamps parsed from log text |
@@ -43,9 +43,9 @@ Do not run two daemons, or a daemon and `test`, against the same state file. Ato
 
 Nonpositive attempts or durations restore defaults; they do not disable bans. Empty region names and nonpositive regional thresholds are removed.
 
-`action` is not a backend enum. Setting `"nft"` attempts to execute `nft <IP>` rather than selecting the automatic nft implementation. Custom actions do not run through a shell and cannot embed arguments or pipelines in the value; they own their cleanup and lifetime. There is no `ssh_port` field: Linux automatic rules target destination TCP 22.
+Custom `action` values are executable names invoked with one IP argument, not shell commands or backend names. Use `auto` for managed rules. Top-level `ssh_ports` defaults to `[22]`; set `[22,2222]` explicitly when both are SSH ports. It does not change sshd ports.
 
-Region matching ignores case and supports partial country/region/city names. Overlapping matching keys have no defined priority; avoid overlapping keys with different thresholds. GeoIP does not replace a trusted-address whitelist. The current database reader is IPv4-only; IPv6 blocking does not require GeoIP.
+Region matching is case-insensitive and supports partial country/region/city names. Multiple matches deterministically choose the highest threshold to reduce false bans. The database is IPv4-only; IPv6 detection works without GeoIP. Prefer explicit office whitelists.
 
 ## Password-only detection
 
@@ -89,7 +89,7 @@ Fields below belong to `hardening.ssh`. They affect `secure-ssh`; starting the d
 | `geoip.enabled` | `true` | Regional thresholds and notification enrichment |
 | `geoip.db_path` | State directory + `ip2region_v4.xdb` | Missing database removes location detail, not base-threshold detection |
 | `malware.enabled` | `true` | Includes scanning in Linux audits; manual `malware-scan` still scans |
-| `malware.direct_kill` | `false` | Only cleanup configuration switch; can terminate suspicious processes independently of `dry_run` |
+| `malware.direct_kill` | `false` | Only cleanup switch; manual scans only, restricted intrusion executable names; audits always read-only |
 | `malware.report_dir` | State directory + `reports` | Manual reports; do not mix unrelated `.txt` files here |
 | `malware.report_keep` | `50` | After writing a report, retain the newest N `.txt` files by modification time; nonpositive values restore 50 |
 
@@ -103,8 +103,8 @@ All fields below belong to `notifications`. Channel-specific examples remain in 
 | --- | --- | --- |
 | `console` | `true` | Notification output to stdout |
 | `audit` | `false` | Sends audit findings; does not enable/disable audit execution |
-| `batch.enabled` | `true` | Batches ban events; `action=notify` and audits send directly |
-| `batch.interval` | `"60s"` | Eligibility checked during scan cycles, not an exact independent timer |
+| `batch.enabled` | `true` | Batches ban events; notify/audit events enter the durable queue directly |
+| `batch.interval` | `"60s"` | Measured from the first pending event; an independent worker checks once per second |
 | `batch.max_items` | `20` | Sends when pending count reaches the limit |
 | `feishu` / `discord` / `slack` | `enabled=false` | `enabled`, `url`, `location_language`; Feishu/Lark can use a signing `secret` |
 | `webhooks[]` | Empty | `name`, `enabled`, `url`, `format`, `headers`, `secret`, `location_language` |
@@ -112,15 +112,22 @@ All fields below belong to `notifications`. Channel-specific examples remain in 
 | `email.enabled` | `false` | SMTP delivery |
 | `email.from` / `to` | Empty | Sender; comma-separated recipients |
 | `email.password` | Empty | SMTP authorization code or applicable credential |
-| `email.smtp_host` / `smtp_port` | Empty / `0` | Set both to override presets; if either is absent, inference replaces both |
+| `email.smtp_host` / `smtp_port` | Empty / `0` | Infers only missing values; TLS 465 or mandatory STARTTLS for other ports |
 | `email.location_language` | Empty | Location display language, not full-message translation |
 
-Notifications are not a durable queue. Pending batches live in memory, delivery failures have no guaranteed retry, and channels run sequentially: one failure prevents later channels in that call. HTTP 2xx only confirms transport acceptance, not provider-side business success. Test each channel and verify receipt.
+Notifications use a bounded durable queue and independent channels with 10-second deadlines. Telegram/Feishu business errors are checked; failed channels retry without resending confirmed channels. See [delivery guarantees and setup](notifications-en.md).
 
 ## Production shortcut changes
 
-`enable-production` sets `dry_run=false`, replaces `geoip` and `logging` with platform defaults, sets `notifications.audit=false`, and replaces batching with enabled / 60 seconds / 20 items. Rules, whitelists, and channel credentials remain. It does not restart the service.
+`enable-production` changes only `dry_run=false`; all other preferences remain. Restart the service afterward.
 
-If database paths or logging policies are customized, edit `dry_run` manually or restore those fields afterward. Preserving a config file does not mean every field stays unchanged.
+Existing rules are not silently migrated by upgrades. Use `safe-ssh` to preview and `safe-ssh -write` to migrate the named default rule.
 
 Source: [configuration](../internal/config/config.go), [scanner](../internal/daemon/daemon.go), [CLI](../cmd/banhack233/main.go).
+
+## New safety and delivery fields
+
+- `ssh_ports`: destination TCP ports, default `[22]` (Linux/Windows); match actual SSH listeners. PF remains administrator-managed.
+- Rule `success_grace`: default template `"10m"`; omitted in a custom rule means `"0s"`. A successful login protects the source IP across usernames in that rule. The current batch is protected even with zero grace. It does not release existing bans.
+- `notifications.queue_path`: defaults to `state_path + ".notifications.json"`; private writable file, distinct from state.
+- `notifications.telegram`: `enabled`, `bot_token` or `bot_token_env`, `chat_id`, optional `message_thread_id` and `disable_notification`. Only `bot_token_env` reads the named environment variable; JSON is not generally expanded.

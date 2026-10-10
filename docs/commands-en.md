@@ -21,7 +21,7 @@ Example addresses are documentation placeholders; substitute a real trusted addr
 | `autostart-status` | None | Autostart configuration; Windows does not currently determine whether the task is running |
 | `whitelist` | `-config`, no IP arguments | Displays whitelist |
 
-**`status` and `doctor` are not read-only under every configuration.** Linux audits include malware scanning. With `malware.enabled=true` and `direct_kill=true`, suspicious processes can be terminated. Keep `direct_kill=false` for observation. `dry_run` only controls firewall actions.
+`config-check`, `status`, `doctor` and scheduled audits never kill processes. `dry_run` controls firewall actions; manual malware cleanup requires explicit policy.
 
 ## Configuration and daemon
 
@@ -30,9 +30,9 @@ Example addresses are documentation placeholders; substitute a real trusted addr
 | `init-config` | `-config`, `-force` | Writes platform defaults; refuses existing files unless `-force` is supplied |
 | `run` | `-config` | Foreground daemon; writes state/logs and performs configured bans, audits, notifications |
 | `test` | `-config` | One real daemon scan cycle; writes state and can apply/release bans in production mode |
-| `enable-production` | `-config` | Writes a production preset, without restarting; see [fields replaced](configuration-en.md) |
+| `enable-production` | `-config` | Changes only dry_run to false; restart required |
 | `whitelist` | `-config`, one or more IPs/CIDRs | Appends persistent config exceptions; restart required. Does not create firewall ACCEPT rules |
-| `unban <ip>` | One IP only | Removes a firewall entry using automatic backend selection; does not edit whitelist or state |
+| `unban [-config path] <ip>` | One IP only | Removes entries for configured SSH ports and legacy port 22; does not edit whitelist or state |
 
 There is no `whitelist remove` subcommand. Edit `ignore_ips` and restart to remove an exception. `unban` is temporary firewall remediation; add a whitelist entry for a lasting exception.
 
@@ -67,7 +67,7 @@ banhack233 notify-test -channel feishu,email -message 'banhack233 channel check'
 banhack233 notify-test -channel webhook:custom-json
 ```
 
-Selectors support `console,feishu,discord,slack,email,webhook` and `webhook:<name>`. Omitting `-kill` does not override `direct_kill=true`. Non-Linux scans report unsupported; this is not a clean-health result.
+Selectors support `console,telegram,feishu,discord,slack,email,webhook` and `webhook:<name>`. Omitting `-kill` does not override `direct_kill=true`. Non-Linux scans report unsupported; this is not a clean-health result.
 
 ## Autostart
 
@@ -83,8 +83,19 @@ Installation writes startup configuration and attempts to start: systemd on Linu
 
 ## Exit status and verification
 
-CLI errors return exit code 1. The daemon logs per-cycle errors as `scan error:` and continues, so a running process is not proof of successful scans. `test` also does not replace receipt verification: errors from its deferred batch flush are currently not returned.
+CLI errors return exit code 1. Per-cycle daemon errors are logged and scanning continues; notification delivery failures do not stop log ingestion. `test` returns final queue-flush errors. `config-check` is the read-only validator.
 
 `jq empty /etc/banhack233/config.json` checks JSON syntax only, not field names, regexes, permissions, or production suitability. Use [isolated log replay](operations-en.md) for functional checks; production `test` is not a side-effect-free linter.
 
 Source: [CLI](../cmd/banhack233/main.go), [autostart](../internal/autostart/autostart.go), [audit](../internal/audit/audit.go).
+
+## Updates and migration
+
+| Command | Effect |
+| --- | --- |
+| `config-check -config path` | Strict, read-only validation |
+| `safe-ssh [-write] [-config path]` | Preview/apply password-only default-rule migration, saves `.before-safe-ssh` backup |
+| `update [-apply] [-restart] [-rollback] [-config path]` | Check by default; explicitly install or restore previous verified binary |
+| `auto-update [-enable/-disable/-status] [-config path]` | Daily OS schedule; no action defaults to status |
+
+See [update prerequisites, platform commands and rollback](updates-en.md).

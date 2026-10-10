@@ -573,7 +573,7 @@ func (a Alert) discordColor() int {
 
 func (a Alert) discordFields() []map[string]any {
 	field := func(name, value string, inline bool) map[string]any {
-		return map[string]any{"name": name, "value": value, "inline": inline}
+		return map[string]any{"name": truncate(name, 256), "value": truncate(value, 512), "inline": inline}
 	}
 	if a.Kind == alertTest {
 		return nil
@@ -591,17 +591,17 @@ func (a Alert) discordFields() []map[string]any {
 
 func (a Alert) discordEmbed() map[string]any {
 	embed := map[string]any{
-		"title":     a.Title,
+		"title":     truncate(a.Title, 256),
 		"color":     a.discordColor(),
 		"timestamp": a.When.UTC().Format(time.RFC3339),
 		"author":    map[string]any{"name": "banhack233"},
 		"footer":    map[string]any{"text": a.When.Format("2006-01-02 15:04:05 MST")},
 	}
 	if a.Kind == alertTest || (a.Kind == alertAudit && strings.TrimSpace(a.Detail) != "") {
-		embed["description"] = a.Detail
+		embed["description"] = truncate(a.Detail, 3000)
 	}
 	if lines := a.batchDetailLines(); len(lines) > 0 {
-		embed["description"] = strings.Join(lines, "\n")
+		embed["description"] = truncate(strings.Join(lines, "\n"), 3000)
 	}
 	if fields := a.discordFields(); len(fields) > 0 {
 		embed["fields"] = fields

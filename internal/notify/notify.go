@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,39 +34,8 @@ func Send(ctx context.Context, cfg config.NotificationSet, ev Event) error {
 }
 
 func sendAlert(ctx context.Context, cfg config.NotificationSet, alert Alert) error {
-	if cfg.Console {
-		fmt.Println(alert.ConsoleText())
-	}
-	if cfg.Feishu.Enabled {
-		if err := sendWebhook(ctx, config.WebhookTarget{Name: "feishu", Enabled: true, URL: cfg.Feishu.URL, Format: "feishu", Secret: cfg.Feishu.Secret, LocationLanguage: cfg.Feishu.LocationLanguage}, alert); err != nil {
-			return err
-		}
-	}
-	if cfg.Discord.Enabled {
-		if err := sendWebhook(ctx, config.WebhookTarget{Name: "discord", Enabled: true, URL: cfg.Discord.URL, Format: "discord", LocationLanguage: cfg.Discord.LocationLanguage}, alert); err != nil {
-			return err
-		}
-	}
-	if cfg.Slack.Enabled {
-		if err := sendWebhook(ctx, config.WebhookTarget{Name: "slack", Enabled: true, URL: cfg.Slack.URL, Format: "slack", LocationLanguage: cfg.Slack.LocationLanguage}, alert); err != nil {
-			return err
-		}
-	}
-	for _, target := range cfg.Webhooks {
-		if !target.Enabled {
-			continue
-		}
-		if err := sendWebhook(ctx, target, alert); err != nil {
-			return err
-		}
-	}
-	if cfg.Email.Enabled {
-		emailAlert := alert.WithLocationLanguage(cfg.Email.LocationLanguage)
-		if err := SendEmail(cfg.Email, emailAlert.EmailSubject(), emailAlert.EmailBody(), emailAlert.EmailHTML()); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := deliver(ctx, cfg, alert, nil)
+	return err
 }
 
 func sendWebhook(ctx context.Context, target config.WebhookTarget, alert Alert) error {
@@ -73,28 +44,91 @@ func sendWebhook(ctx context.Context, target config.WebhookTarget, alert Alert) 
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.URL, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", contentType)
-	for key, value := range target.Headers {
-		req.Header.Set(key, value)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		name := strings.TrimSpace(target.Name)
-		if name == "" {
-			name = "webhook"
+	endpoint := target.URL
+	if strings.EqualFold(target.Format, "discord") {
+		u, err := url.Parse(endpoint)
+		if err != nil {
+			return fmt.Errorf("invalid webhook URL")
 		}
-		return fmt.Errorf("%s webhook status %d: %s", name, resp.StatusCode, strings.TrimSpace(string(snippet)))
+		q := u.Query()
+		q.Set("wait", "true")
+		u.RawQuery = q.Encode()
+		endpoint = u.String()
+	}
+	response, err := post(ctx, endpoint, body, contentType, target.Headers)
+	if err != nil {
+		return err
+	}
+	if target.Format == "feishu" || target.Format == "lark" {
+		var result struct {
+			Code       int `json:"code"`
+			StatusCode int `json:"StatusCode"`
+		}
+		if len(response) > 0 && json.Unmarshal(response, &result) != nil {
+			return fmt.Errorf("invalid Feishu/Lark response")
+		}
+		if result.Code != 0 || result.StatusCode != 0 {
+			return fmt.Errorf("Feishu/Lark rejected message (code %d/%d)", result.Code, result.StatusCode)
+		}
 	}
 	return nil
+}
+
+type deliveryError struct {
+	Status     int
+	RetryAfter time.Duration
+}
+
+func (e *deliveryError) Error() string { return fmt.Sprintf("notification HTTP status %d", e.Status) }
+
+func post(ctx context.Context, endpoint string, body []byte, contentType string, headers map[string]string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("invalid notification URL")
+	}
+	req.Header.Set("Content-Type", contentType)
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+	client := &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Do(req)
+	if err != nil {
+		// net/url errors contain webhook credentials; never log them.
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("notification network request failed")
+	}
+	defer resp.Body.Close()
+	response, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return nil, fmt.Errorf("reading notification response failed")
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		delay := time.Duration(0)
+		if seconds, err := strconv.ParseFloat(resp.Header.Get("Retry-After"), 64); err == nil {
+			delay = time.Duration(seconds * float64(time.Second))
+		} else if date, err := http.ParseTime(resp.Header.Get("Retry-After")); err == nil {
+			delay = time.Until(date)
+		}
+		var data struct {
+			RetryAfter float64 `json:"retry_after"`
+			Parameters struct {
+				RetryAfter int `json:"retry_after"`
+			} `json:"parameters"`
+		}
+		_ = json.Unmarshal(response, &data)
+		if n := time.Duration(data.RetryAfter * float64(time.Second)); n > delay {
+			delay = n
+		}
+		if n := time.Duration(data.Parameters.RetryAfter) * time.Second; n > delay {
+			delay = n
+		}
+		return nil, &deliveryError{Status: resp.StatusCode, RetryAfter: delay}
+	}
+	return response, nil
 }
 
 func feishuSign(timestamp, secret string) string {
@@ -112,7 +146,7 @@ func webhookBody(format string, alert Alert, secret string) ([]byte, string, err
 		body, err := json.Marshal(alert.JSONPayload())
 		return body, "application/json", err
 	case "discord":
-		body, err := json.Marshal(map[string]any{"embeds": []map[string]any{alert.discordEmbed()}})
+		body, err := json.Marshal(map[string]any{"embeds": []map[string]any{alert.discordEmbed()}, "allowed_mentions": map[string]any{"parse": []string{}}})
 		return body, "application/json", err
 	case "slack":
 		body, err := json.Marshal(map[string]any{

@@ -19,6 +19,8 @@ type Finding struct {
 }
 
 func Run(cfg config.Config) []Finding {
+	// Diagnostics and scheduled audits are always read-only.
+	cfg.Malware.DirectKill = false
 	var findings []Finding
 	if runtime.GOOS == "linux" {
 		findings = append(findings, auditLinuxSSH(cfg)...)
@@ -50,7 +52,7 @@ func auditMalware(cfg config.MalwareConfig) []Finding {
 }
 
 func hasNotification(cfg config.NotificationSet) bool {
-	if cfg.Console || cfg.Feishu.Enabled || cfg.Discord.Enabled || cfg.Slack.Enabled || cfg.Email.Enabled {
+	if cfg.Console || cfg.Telegram.Enabled || cfg.Feishu.Enabled || cfg.Discord.Enabled || cfg.Slack.Enabled || cfg.Email.Enabled {
 		return true
 	}
 	for _, target := range cfg.Webhooks {

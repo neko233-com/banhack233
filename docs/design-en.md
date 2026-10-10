@@ -1,92 +1,67 @@
-# Architecture, platform limits, and next steps
+# Architecture and platform boundaries
 
-This page describes the current implementation, not new feature commitments. banhack233 combines fail2ban / sshguard-style defense, host audits, keepalive, notifications, and autostart. Similar detection ideas do not imply full compatibility with those projects.
+banhack233 combines fail2ban / sshguard-style defense, audits, SSH/optional TCP keepalive, notifications, autostart and release updates. It does not parse fail2ban configuration and is not a full commercial antivirus or EDR.
 
-## From logs to bans
+## From logs to actions
 
 ```text
-Startup: load configuration once
-  → load state each cycle
-  → release expired / newly whitelisted tracked automatic bans in production
-  → read new text lines / query Windows events
-  → successful-login match: clear this rule's failure counters for the IP
-  → failure match: validate IP → whitelist → regional threshold → accumulate
-  → threshold: firewall action / dry-run / notify cooldown
-  → application logging and notification delivery or buffering
-  → audit if due
-  → persist state and wait for next cycle
+Validate config → lock state writer
+  → load state and release expired / newly whitelisted tracked bans
+  → read incremental events per rule/source
+  → preprocess successful logins: clear counters and set IP grace
+  → password failure: canonical IP → whitelist/grace → username → threshold
+  → SSH destination-port enforcement / dry-run / notify cooldown
+  → application log and durable queue → independent delivery/retry
+  → read-only audit → save state → next cycle
 ```
 
-Success clears hit counters, not existing bans or cooldowns; it cannot undo actions already triggered by earlier lines in the same cycle. The first matching failure expression supplies one result per line. Multiple log lines from one authentication exchange can still count as multiple events.
+Defaults count only `Failed password`. Invalid-user, publickey, max-auth and disconnect companion messages do not add attempts. Success anywhere in the current read batch suppresses that IP's failures, followed by a default 10-minute grace period for this rule. Custom rules omitting `success_grace` have zero subsequent grace, while same-batch protection remains.
 
-With `count_by_user=true` and a captured user, keys are `rule|IP|user`; otherwise `rule|IP`. Two people sharing a username still share a counter. Enforcement has only a source IP, not a device or MAC identity.
+`count_by_user=true` groups by `rule|IP|username`. Different accounts behind one egress are separate, but shared accounts share a counter. Firewall enforcement remains IP-based. Public routing does not expose the client's NIC MAC to SSH, so it cannot distinguish office machines that way. Individual accounts/keys, SSH certificates or device-aware access networks can provide identity; this program does not implement device bans.
 
-## Time, state, and expiry
+Office whitelisting is direct, but exempts everyone behind that egress. Success grace likewise trusts an IP with recent successful authentication. Reduce `success_grace` or use notify-only/manual response where appropriate. There is no six-connections-per-minute drop rule.
 
-- Failure windows use observation time rather than timestamps parsed from log text. Historical replay is treated as newly observed activity; default `start_at_end=true` avoids initial full text-log replay.
-- The daemon records `ban_time` and releases it in later cycles; nft elements do not receive their own expiry timer. Stopping the daemon stops automatic release.
-- An IP shared by multiple active rule/user bans is retained until the associated real bans can all be released.
-- Failed removal retains state for retry. Custom actions own reversal.
-- Persisted state is not persisted firewall enforcement. After reboot or external rule removal, current code does not automatically reconstruct every unexpired ban. Inspect both layers.
-- `unban` changes firewall contents, not counters/state. Deleting state does not remove firewall entries.
-- Renaming/removing a rule does not immediately undo its previous bans; review backend contents and expiry together.
+## Logs, state and expiry
 
-## Text-log ingestion limits
+- Text offsets belong to each rule/path. File identity detects replacement; truncation resets to zero. Partial lines wait, oversized records are discarded, and a cycle reads approximately 4 MiB. Unread tails of deleted rotated files cannot be recovered.
+- Windows processes up to 1024 events per cycle in EventRecordID order, persisting/deduplicating the cursor. First `start_at_end=true` records the newest ID; detected channel clearing resets the cursor.
+- Duplicate forwarding into different files has no global event identity. Failure windows use observation time rather than parsed historical timestamps. Keep initial EOF mode in production.
+- A cross-process lock rejects another daemon/test sharing state. Use a dedicated queue path for each instance.
+- Expiry requires the running daemon. Multiple active rule/user bans share an IP until all can be released.
+- Failed removal is retried. Custom actions own reversal. `unban` changes the backend only; deleting state does not remove kernel rules.
+- State and firewall persistence are separate. Reboot or external rule clearing does not currently trigger full reconstruction of all unexpired bans.
+- Renamed/deleted rules do not immediately undo existing bans. Review old rules when changing `ssh_ports`; recorded ports support eventual cleanup.
 
-Logs are tracked by path and byte offset, without inode/file-identity tracking. A smaller file restarts at zero, but a replacement file already larger than the old offset can lose its beginning. This is not a complete rotation/delivery guarantee.
-
-Rules sharing a file share its offset: the first reader can consume lines needed by later rules. Prefer one rule containing the relevant patterns for a source. Duplicate forwarding into separate files can also duplicate counts.
-
-There is no native Linux journald reader. Windows `eventlog:` is a separate implementation, not a general log URI scheme. Patterns use Go regexp, without PCRE lookarounds/backreferences or fail2ban jail/filter loading.
-
-## Platform matrix
+## Platforms
 
 | Capability | Linux | macOS | Windows |
 | --- | --- | --- | --- |
-| Release binaries | amd64 / arm64 | amd64 / arm64 | amd64 / arm64 |
-| Autostart | systemd | launchd | SYSTEM scheduled task |
-| Inputs | Text logs | Text logs; actual source must be configured | `OpenSSH/Operational` events or text files |
-| Automatic firewall | nft, or iptables/ip6tables if nft is absent | PF table operations; filtering rules required | netsh rules; port-direction issue below |
-| `secure-ssh` / `keepalive` | Supported | Unsupported | Unsupported |
-| Malware scan | Lightweight process/persistence checks | Reports unsupported | Reports unsupported |
-| GeoIP | Local IPv4 database | Same, with usable path | Same, with usable path |
+| Architectures | amd64 / arm64 | amd64 / arm64 | amd64 / arm64 |
+| Autostart / daily update | systemd / timer | launchd / 86400 seconds | SYSTEM scheduled tasks |
+| Logs | auth.log / secure / text | Configure actual authentication text source | OpenSSH/Operational or text |
+| Firewall | nft, otherwise iptables/ip6tables | PF table with administrator-managed filter | netsh inbound `localport` |
+| SSH ports | `ssh_ports`, default `[22]` | Configure PF explicitly | `ssh_ports`, default `[22]` |
+| secure-ssh / keepalive | Supported | Unsupported | Unsupported |
+| Malware scan | Lightweight helper | Reports unsupported | Reports unsupported |
+| GeoIP | Optional local IPv4 database | Same | Same |
 
-Six successful builds do not prove six-platform blocking acceptance. Linux/Windows CI unit tests do not replace target-host firewall and log-input verification.
+A failing installed nft backend does not silently fall back to another firewall. Fix its permissions/kernel support. PF refuses table changes if it cannot find a filter referencing `<banhack233>`; an administrator must still verify actual scope and effect. [Microsoft netsh local-port semantics](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/netsh-advfirewall)
 
-## Known limits and deployment impact
+Six builds, Linux/Windows/macOS unit tests and isolated Linux integration checks do not prove production traffic enforcement on every platform. Windows `autostart-status` still does not reliably report live task activity; inspect Task Scheduler. The updater separately checks live task state for restart health.
 
-| Current implementation | Impact | Current handling |
-| --- | --- | --- |
-| Linux auto rules use `tcp dport 22` | Custom sshd ports are not followed | Use notify-only or a separately verified custom action; no `ssh_port` field exists |
-| nft runtime failure does not fall back to iptables | Permission/kernel issues become scan errors | Inspect actual nft errors and repair the selected backend |
-| Windows netsh uses `remoteport=22` | Inbound matching targets the remote source port, not the usual local SSH destination port, and generally misses intended traffic | Do not rely on this automatic rule until corrected; separately manage verified firewall policy |
-| Windows queries the latest 80 events every cycle, without cursor/deduplication | Old failures can be counted repeatedly; event ordering differs from text replay | Validate in observation/notify mode; cursor/deduplication is outstanding |
-| macOS only operates the `banhack233` PF table | No complete matching filter rule is installed; table membership does not prove blocking | Configure and validate PF filtering and authentication-log sources separately |
-| Windows startup status does not inspect live task execution | `active=false` does not prove the task is stopped | Check `schtasks /Query /TN banhack233 /V /FO LIST` |
-| Some macOS / non-admin Windows installer paths differ from defaults | Missing files silently use defaults | Pass `-config`, confirm existence, and review platform-specific fields |
-| SSH audit simply reads the main file | Include/Match/effective precedence is not fully evaluated | Check `sshd -T` with the relevant connection context |
-| Serial notifications, in-memory batches, no durable retry | One channel failure affects later channels; pending events can be lost | Test channels separately and retain logs; this is not a reliable message bus |
+## Read-only diagnostics and cleanup
 
-The Windows port-direction finding follows from [current action code](../internal/ban/action.go) and [Microsoft's netsh parameter reference](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/netsh-advfirewall). It is a source-confirmed implementation issue, not a fix delivered by this documentation change.
+`status`, `doctor` and scheduled audits are read-only. Manual `malware-scan` writes a report. The only cleanup setting is `direct_kill`, default false; explicit cleanup is restricted to selected intrusion executable names. A temporary path, masscan, xmrig or an argument keyword alone never qualifies for termination. Such findings remain reviewable indicators, not proof of compromise.
 
-## Keepalive and protection boundaries
+Reports use `{name}.yyyy-MM-dd_HH-mm-ss.txt`; collisions suffix the name without overwriting. Default retention keeps 50 most recently modified reports, an LRU-like count policy rather than access-time retention.
 
-“24h SSH keepalive” describes a configured probe tolerance window, not a guarantee through network loss, host sleep, service restarts, or proxy timeouts. Password/root login remains supported; compare the command's policy with host requirements. Business TCP long connections also depend on socket keepalive, protocol heartbeats, and application timeouts in custom TCP services/clients. Global tuning requires explicit `-tcp`.
+`dry_run` controls firewall actions, not all commands. Manual cleanup, explicit configuration writes and updates have separate effects. `keepalive -write` changes SSH only; global TCP/conntrack tuning requires `-tcp`. Business TCP connections still depend on custom services/clients, socket keepalive, heartbeats and intermediate idle timeouts.
 
-Whitelisting exempts all attempts from that source, including unwanted attempts behind the same office egress. SSH keys/certificates help manage identity, but this program does not enforce device bans by key fingerprint. It has no default connection-frequency drop rule and does not provide traffic scrubbing, automatic OS patching, or business-port policy management.
+## Remaining work
 
-## Useful future work
+- Native journald, historical event timestamps, unread rotated tails, full firewall reconstruction after restart.
+- Protection health metrics and reproducible capacity benchmarks; no Prometheus endpoint or performance SLO currently.
+- Managed macOS PF rules, real network acceptance across platforms and a device-identity integration design.
+- Independent release signatures/attestations; current integrity checks trust SHA256SUMS from GitHub Releases.
 
-These are candidates, **not implemented features**. Each needs reproducible acceptance criteria.
-
-| Priority | Direction | Acceptance criteria |
-| --- | --- | --- |
-| High | Windows local destination port, event cursor/deduplication | Block the SSH target with normal client source ports; count each event once across restarts |
-| High | Configurable SSH ports and platform firewall rules | IPv4/IPv6, custom ports, expiry, and actual connection checks |
-| High | Strict config validation and isolated command side effects | Explicit errors for typos/missing files/invalid regexes; read-only diagnostics never remediate |
-| Medium | Rotation, shared-file rules, state/firewall reconciliation | No missed file replacements; independent rule consumption; verifiable enforcement after restart |
-| Medium | Notification deadlines, independent failures, durable retry | Failed webhook cannot block scanning/other channels; pending events recover |
-| Medium | Consistent install paths and asset verification | Correct defaults on all platforms; failed downloads preserve working binaries |
-| Later | Capacity tests, metrics, device-identity design | Reproducible environment, log volume, latency/memory/false-positive data, dependencies and limits |
-
-Use the [issue evidence template](troubleshooting-en.md). Source: [scanner](../internal/daemon/daemon.go), [reconciliation](../internal/daemon/reconcile.go), [Windows events](../internal/daemon/windows_events.go), [backend](../internal/ban/action.go).
+See [notification semantics](notifications-en.md) and [update guarantees](updates-en.md). Remaining work is not presented as shipped capability.

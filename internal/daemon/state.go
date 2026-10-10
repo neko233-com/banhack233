@@ -9,12 +9,15 @@ import (
 )
 
 type state struct {
-	Offsets    map[string]int64       `json:"offsets"`
-	Hits       map[string][]time.Time `json:"hits"`
-	Bans       map[string]time.Time   `json:"bans"`
-	BanActions map[string]string      `json:"ban_actions,omitempty"`
-	Cooldowns  map[string]time.Time   `json:"cooldowns,omitempty"`
-	LastAudit  time.Time              `json:"last_audit"`
+	BanPorts     map[string][]int       `json:"ban_ports,omitempty"`
+	FileIDs      map[string]string      `json:"file_ids,omitempty"`
+	SuccessUntil map[string]time.Time   `json:"success_until,omitempty"`
+	Offsets      map[string]int64       `json:"offsets"`
+	Hits         map[string][]time.Time `json:"hits"`
+	Bans         map[string]time.Time   `json:"bans"`
+	BanActions   map[string]string      `json:"ban_actions,omitempty"`
+	Cooldowns    map[string]time.Time   `json:"cooldowns,omitempty"`
+	LastAudit    time.Time              `json:"last_audit"`
 }
 
 func loadState(path string) (state, error) {
@@ -43,6 +46,12 @@ func loadState(path string) (state, error) {
 	}
 	if st.Cooldowns == nil {
 		st.Cooldowns = map[string]time.Time{}
+	}
+	if st.SuccessUntil == nil {
+		st.SuccessUntil = map[string]time.Time{}
+	}
+	if st.FileIDs == nil {
+		st.FileIDs = map[string]string{}
 	}
 	return st, nil
 }

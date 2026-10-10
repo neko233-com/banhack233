@@ -1,11 +1,17 @@
 # Changelog
 
-## Unreleased / 未发布
+## v0.2.0 — 2026-10-11
 
 - 补充中英文命令参考、完整配置参考、部署与恢复手册、排障 FAQ、工作原理与平台边界。
-- HTML 文档增加跨专题导航和对应语言切换；新内容随下一次正式 Release 构建上线。
-- 按当前源码澄清命令副作用、生产预设覆盖字段、日志/状态语义、通知投递限制和跨平台已知问题；本次未修改主机防护逻辑。
-- Added bilingual operational references and topic navigation. Documented current behavior and limitations; host protection behavior is unchanged.
+- 默认仅计密码错误，成功登录优先处理并给予 10 分钟宽限；提供 `safe-ssh` 旧规则迁移，保留公司白名单与阈值。
+- Windows 事件 ID 游标/去重、本地目标端口修正；新增 `ssh_ports`、文件身份/半行处理、多规则独立游标、状态写入锁。
+- 新增 Telegram；Discord 禁止提及、限制消息长度；渠道独立并发、10 秒超时、业务错误检查、有界持久重试。SMTP 使用 TLS/STARTTLS。
+- `config-check` 严格验证；修复 JSON 数组隐式继承默认规则的问题；生产切换只改 dry_run。状态/诊断/定时巡检只读，临时目录和合法挖矿工具不单独触发清理；报告不覆盖同名文件。
+- 每日正式 Release 更新：资产 SHA256、版本与配置校验、保留配置/状态、旧二进制备份、服务重启失败回滚；Linux timer、macOS launchd、Windows 隐藏 helper。
+- 安装器校验下载并生成本平台配置；维护运行时文件的 gitignore。HTML 增至 19 页，中英文新增通知与自动更新专题。
+- Password-only defaults, successful-login grace, safer diagnostics, Telegram and durable channel-isolated delivery, verified daily updates and rollback, cross-platform cursor/port fixes, strict validation and bilingual operational documentation.
+
+旧配置不自动迁移：升级后运行 `safe-ssh` 预览，再按需 `safe-ssh -write` 并重启。每日更新需显式 `auto-update -enable`；规则、白名单和凭据保持不变。Existing configs are preserved; migrate the default SSH rule explicitly and opt into daily updates.
 
 ## v0.1.22 — 2026-10-06
 

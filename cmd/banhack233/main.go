@@ -6,8 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/neko233-com/banhack233/internal/audit"
@@ -33,6 +35,23 @@ func run(args []string) error {
 		args = []string{"help"}
 	}
 	switch args[0] {
+	case "config-check":
+		fs := flag.NewFlagSet("config-check", flag.ContinueOnError)
+		path := fs.String("config", config.DefaultPath(), "config file")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if _, err := config.Load(*path); err != nil {
+			return err
+		}
+		fmt.Println("configuration valid")
+		return nil
+	case "safe-ssh":
+		return runSafeSSH(args[1:])
+	case "update":
+		return runUpdate(args[1:])
+	case "auto-update":
+		return runAutoUpdate(args[1:])
 	case "init-config":
 		return runInitConfig(args[1:])
 	case "run":
@@ -63,10 +82,7 @@ func run(args []string) error {
 	case "whitelist":
 		return runWhitelist(args[1:])
 	case "unban":
-		if len(args) < 2 {
-			return fmt.Errorf("usage: banhack233 unban <ip>")
-		}
-		return ban.Unban(args[1])
+		return runUnban(args[1:])
 	case "install-autostart":
 		return runInstallAutostart(args[1:])
 	case "uninstall-autostart":
@@ -87,6 +103,25 @@ func run(args []string) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runUnban(args []string) error {
+	fs := flag.NewFlagSet("unban", flag.ContinueOnError)
+	path := fs.String("config", config.DefaultPath(), "configuration for SSH ports; optional when using port 22")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("usage: banhack233 unban [-config path] <ip>")
+	}
+	ports := []int{22}
+	cfg, err := config.Load(*path)
+	if err == nil {
+		ports = append(ports, cfg.SSHPorts...)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return ban.RemovePorts(fs.Arg(0), "auto", ports)
 }
 
 func runWhitelist(args []string) error {
@@ -173,7 +208,9 @@ func runDaemon(args []string) error {
 	if err != nil {
 		return err
 	}
-	return daemon.Run(context.Background(), cfg)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return daemon.Run(ctx, cfg)
 }
 
 func runOnce(args []string) error {
@@ -194,7 +231,7 @@ func runOnce(args []string) error {
 func runNotifyTest(args []string) error {
 	fs := flag.NewFlagSet("banhack233 notify-test", flag.ContinueOnError)
 	cfgPath := fs.String("config", config.DefaultPath(), "config file")
-	channels := fs.String("channel", "", "comma-separated channels: console,feishu,discord,slack,email,webhook or webhook:<name>")
+	channels := fs.String("channel", "", "comma-separated channels: console,telegram,feishu,discord,slack,email,webhook or webhook:<name>")
 	message := fs.String("message", "", "custom test message")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -305,29 +342,7 @@ func runEnableProduction(args []string) error {
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return fmt.Errorf("parse config %s: %w", *cfgPath, err)
 	}
-	def := config.Default()
 	doc["dry_run"] = false
-	doc["geoip"] = map[string]any{
-		"enabled": def.GeoIP.Enabled,
-		"db_path": def.GeoIP.DBPath,
-	}
-	doc["logging"] = map[string]any{
-		"enabled":     def.Logging.Enabled,
-		"path":        def.Logging.Path,
-		"max_size_mb": def.Logging.MaxSizeMB,
-		"max_age_days": def.Logging.MaxAgeDays,
-	}
-	notifications, _ := doc["notifications"].(map[string]any)
-	if notifications == nil {
-		notifications = map[string]any{}
-	}
-	notifications["audit"] = false
-	notifications["batch"] = map[string]any{
-		"enabled":   true,
-		"interval":  "60s",
-		"max_items": 20,
-	}
-	doc["notifications"] = notifications
 	out, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return err
@@ -347,6 +362,10 @@ func printHelp() {
 	fmt.Println(`banhack233 - adaptive host attack blocker and notifier
 
 Usage:
+	banhack233 config-check [-config path]      validate configuration without host actions
+	banhack233 safe-ssh [-config path] [-write] preview/apply password-only counting and success grace
+	banhack233 update [-apply] [-restart] [-rollback] [-config path]
+	banhack233 auto-update [-enable|-disable|-status] [-config path] daily stable updates
   banhack233 init-config [-config path] [-force] create safe default config
   banhack233 run [-config path]              run daemon
   banhack233 test [-config path]             scan logs once (ban/audit notifications on events)
@@ -358,7 +377,7 @@ Usage:
   banhack233 status [-config path]           show version, config, autostart, audit summary
   banhack233 secure-ssh [-config path]       preview SSH hardening block
   banhack233 secure-ssh -write               apply SSH hardening; requires allowed_users unless -force
-  banhack233 enable-production [-config path] switch config to production mode (dry_run off, geoip/logging/batch on)
+  banhack233 enable-production [-config path] switch dry_run off, preserve all other settings
   banhack233 keepalive [-write] [-tcp]       keep SSH alive; TCP sysctl is opt-in
   banhack233 ban-list                        list active ban backend entries
   banhack233 whitelist [-config path] [ip/cidr ...] list or add never-ban addresses; restart daemon after changes

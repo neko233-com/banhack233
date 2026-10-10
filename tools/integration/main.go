@@ -145,10 +145,10 @@ func main() {
 	statePath := filepath.Join(tmp, "state.json")
 
 	cfg := map[string]any{
-		"dry_run":       false,
-		"start_at_end":  false,
-		"state_path":    statePath,
-		"ignore_ips":    []string{"192.0.2.0/24"},
+		"dry_run":        false,
+		"start_at_end":   false,
+		"state_path":     statePath,
+		"ignore_ips":     []string{"192.0.2.0/24"},
 		"audit_interval": "1h",
 		"rules": []any{map[string]any{
 			"name":           "ssh",
@@ -321,5 +321,61 @@ func main() {
 	mustf(len(nested(st, "bans")) == 0, "final bans = %v", st["bans"])
 	fmt.Println("PASS ipv6 failures ban with ssh-port scope")
 
-	fmt.Println("ALL 10 LINUX INTEGRATION CHECKS PASSED")
+	// 11. Multiple custom SSH ports replace the old rules and remain manually releasable.
+	cfg["ssh_ports"] = []int{2222, 2200}
+	saveCfg()
+	appendFails("203.0.113.14", 5)
+	scan()
+	expectBlocked("203.0.113.14")
+	mustf(chainRuleCount() == 2 && strings.Count(chainRuleText(), "tcp dport { 2200, 2222 } drop") == 2,
+		"custom port scope incorrect: %s", chainRuleText())
+	run(*binPath, "unban", "-config", cfgPath, "203.0.113.14")
+	expectBlocked()
+	st = loadState()
+	nested(st, "bans")["ssh|203.0.113.14"] = "2000-01-01T00:00:00Z"
+	saveState(st)
+	scan()
+	fmt.Println("PASS custom SSH ports replace old scope and manual unban succeeds")
+
+	appendLog := func(line string) {
+		f, err := os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY, 0o644)
+		must(err)
+		_, err = f.WriteString(line + "\n")
+		must(err)
+		must(f.Close())
+	}
+	// 12. A successful retry in the same read batch prevents an earlier threshold ban.
+	rule0["patterns"] = []string{`Failed password for (?:invalid user )?(?P<user>\S+) from <HOST>`}
+	rule0["count_by_user"] = true
+	rule0["success_grace"] = "10m"
+	saveCfg()
+	appendFails("203.0.113.15", 5)
+	appendLog("Accepted password for root from 203.0.113.15 port 22 ssh2")
+	scan()
+	expectBlocked()
+	appendFails("203.0.113.15", 10)
+	scan()
+	expectBlocked()
+	fmt.Println("PASS successful login suppresses same-batch failures and grants grace")
+
+	// 13. Independent usernames behind one NAT do not pool their failure counts.
+	for i := 0; i < 3; i++ {
+		appendLog("Failed password for alice from 203.0.113.16 port 22 ssh2")
+		appendLog("Failed password for bob from 203.0.113.16 port 22 ssh2")
+	}
+	scan()
+	expectBlocked()
+	for i := 0; i < 2; i++ {
+		appendLog("Failed password for alice from 203.0.113.16 port 22 ssh2")
+	}
+	scan()
+	expectBlocked("203.0.113.16")
+	st = loadState()
+	nested(st, "bans")["ssh|203.0.113.16|alice"] = "2000-01-01T00:00:00Z"
+	saveState(st)
+	scan()
+	expectBlocked()
+	fmt.Println("PASS separate username counters only ban when one account reaches threshold")
+
+	fmt.Println("ALL 13 LINUX INTEGRATION CHECKS PASSED")
 }

@@ -36,6 +36,7 @@ func main() {
 	port := flag.Int("port", 22, "SSH 端口")
 	userName := flag.String("user", "root", "SSH 用户")
 	strict := flag.Bool("strict-host-key", false, "未知主机密钥直接失败（默认接受新密钥并记录到 known_hosts）")
+	algorithm := flag.String("host-key-algorithm", "", "指定已有可信主机密钥的算法，例如 ssh-ed25519；仍校验 known_hosts")
 	timeout := flag.Duration("timeout", 45*time.Second, "单条命令超时")
 	flag.Parse()
 
@@ -50,7 +51,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	client, err := dial(*host, *port, *userName, password, *strict)
+	client, err := dial(*host, *port, *userName, password, *strict, *algorithm)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "connect %s:%d: %v\n", *host, *port, err)
 		os.Exit(1)
@@ -108,6 +109,9 @@ func main() {
 			fmt.Printf("!! %v\n", err)
 			failed = true
 		}
+		if code != 0 {
+			failed = true
+		}
 		fmt.Println()
 	}
 	if failed {
@@ -147,14 +151,18 @@ func put(client *ssh.Client, local, remote, mode string) error {
 }
 
 // dial 带重试：服务器偶发在握手阶段 EOF，自动重连最多 5 次。
-func dial(host string, port int, user, password string, strict bool) (*ssh.Client, error) {
+func dial(host string, port int, user, password string, strict bool, algorithm string) (*ssh.Client, error) {
 	var lastErr error
 	for attempt := 1; attempt <= 5; attempt++ {
-		client, err := dialOnce(host, port, user, password, strict)
+		client, err := dialOnce(host, port, user, password, strict, algorithm)
 		if err == nil {
 			return client, nil
 		}
 		lastErr = err
+		var keyErr *knownhosts.KeyError
+		if errors.As(err, &keyErr) {
+			return nil, err
+		}
 		fmt.Fprintf(os.Stderr, "connect attempt %d/5 failed: %v\n", attempt, err)
 		if attempt < 5 {
 			time.Sleep(2 * time.Second)
@@ -163,7 +171,7 @@ func dial(host string, port int, user, password string, strict bool) (*ssh.Clien
 	return nil, lastErr
 }
 
-func dialOnce(host string, port int, user, password string, strict bool) (*ssh.Client, error) {
+func dialOnce(host string, port int, user, password string, strict bool, algorithm string) (*ssh.Client, error) {
 	hostKeyCB, err := hostKeyCallback(strict)
 	if err != nil {
 		return nil, err
@@ -173,6 +181,9 @@ func dialOnce(host string, port int, user, password string, strict bool) (*ssh.C
 		Auth:            []ssh.AuthMethod{ssh.Password(password)},
 		HostKeyCallback: hostKeyCB,
 		Timeout:         15 * time.Second,
+	}
+	if algorithm != "" {
+		cfg.HostKeyAlgorithms = []string{algorithm}
 	}
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	return ssh.Dial("tcp", addr, cfg)
@@ -211,7 +222,7 @@ func hostKeyCallback(strict bool) (ssh.HostKeyCallback, error) {
 				return ferr
 			}
 			defer f.Close()
-			_, ferr = fmt.Fprintf(f, "%s %s\n", knownhosts.Line([]string{remote.String()}, key), key.Marshal())
+			_, ferr = fmt.Fprintln(f, knownhosts.Line([]string{hostname}, key))
 			return ferr
 		}
 		return err

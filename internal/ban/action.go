@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -15,6 +17,10 @@ import (
 var handlePattern = regexp.MustCompile(`# handle (\d+)`)
 
 func Apply(ip, action string, dryRun bool) (string, error) {
+	return ApplyPorts(ip, action, dryRun, []int{22})
+}
+
+func ApplyPorts(ip, action string, dryRun bool, ports []int) (string, error) {
 	if _, err := netip.ParseAddr(ip); err != nil {
 		return "", fmt.Errorf("invalid IP %q: %w", ip, err)
 	}
@@ -26,13 +32,13 @@ func Apply(ip, action string, dryRun bool) (string, error) {
 	}
 	switch action {
 	case "", "auto":
-		return applyAuto(ip)
+		return applyAuto(ip, ports)
 	default:
 		return action, exec.Command(action, ip).Run()
 	}
 }
 
-func applyAuto(ip string) (string, error) {
+func applyAuto(ip string, ports []int) (string, error) {
 	addr, err := netip.ParseAddr(ip)
 	if err != nil {
 		return "", fmt.Errorf("invalid IP %q: %w", ip, err)
@@ -42,7 +48,7 @@ func applyAuto(ip string) (string, error) {
 	switch runtime.GOOS {
 	case "linux":
 		if _, err := exec.LookPath("nft"); err == nil {
-			if err := ensureNFT(); err != nil {
+			if err := ensureNFTPorts(ports); err != nil {
 				return "nft", err
 			}
 			set := "blocked"
@@ -56,7 +62,16 @@ func applyAuto(ip string) (string, error) {
 			bin = "ip6tables"
 		}
 		if _, err := exec.LookPath(bin); err == nil {
-			return "iptables", exec.Command(bin, "-I", "INPUT", "-s", target, "-p", "tcp", "--dport", "22", "-j", "DROP").Run()
+			for _, port := range portStrings(ports) {
+				if exec.Command(bin, "-w", "5", "-C", "INPUT", "-s", target, "-p", "tcp", "--dport", port, "-j", "DROP").Run() == nil {
+					continue
+				}
+				if err := exec.Command(bin, "-w", "5", "-I", "INPUT", "-s", target, "-p", "tcp", "--dport", port, "-j", "DROP").Run(); err != nil {
+					_ = RemovePorts(ip, "iptables", ports)
+					return "iptables", err
+				}
+			}
+			return "iptables", nil
 		}
 		return "", fmt.Errorf("no nft or iptables found")
 	case "darwin":
@@ -66,18 +81,30 @@ func applyAuto(ip string) (string, error) {
 		return "pf", runOK(exec.Command("pfctl", "-t", "banhack233", "-T", "add", target))
 	case "windows":
 		name := "banhack233-" + ip
-		return "netsh", exec.Command("netsh", "advfirewall", "firewall", "add", "rule", "name="+name, "dir=in", "action=block", "remoteip="+target, "remoteport=22", "protocol=TCP").Run()
+		_ = exec.Command("netsh", "advfirewall", "firewall", "delete", "rule", "name="+name).Run()
+		return "netsh", exec.Command("netsh", "advfirewall", "firewall", "add", "rule", "name="+name, "dir=in", "action=block", "remoteip="+target, "localport="+strings.Join(portStrings(ports), ","), "protocol=TCP").Run()
 	default:
 		return "", fmt.Errorf("unsupported OS %s", runtime.GOOS)
 	}
 }
 
 func ensurePF() error {
+	out, err := exec.Command("pfctl", "-sr").Output()
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(out), "<banhack233>") {
+		return fmt.Errorf("PF requires an explicitly configured SSH-only block rule using <banhack233>; no firewall change applied")
+	}
 	_ = runOK(exec.Command("pfctl", "-E"))
 	return runOK(exec.Command("pfctl", "-t", "banhack233", "-T", "show"))
 }
 
 func ensureNFT() error {
+	return ensureNFTPorts([]int{22})
+}
+
+func ensureNFTPorts(ports []int) error {
 	script := `
 add table inet banhack233
 add set inet banhack233 blocked { type ipv4_addr; flags timeout; }
@@ -97,7 +124,7 @@ add chain inet banhack233 input { type filter hook input priority -100; policy a
 	if err != nil {
 		return fmt.Errorf("list nft chain: %s: %w", out, err)
 	}
-	plan := planChainRules(string(out))
+	plan := planChainRulesPorts(string(out), ports)
 	for _, handle := range plan.DeleteHandles {
 		if err := runOK(exec.Command("nft", "delete", "rule", "inet", "banhack233", "input", "handle", handle)); err != nil {
 			return err
@@ -107,12 +134,12 @@ add chain inet banhack233 input { type filter hook input priority -100; policy a
 		return fmt.Errorf("nft rule without handle cannot be removed: %s", out)
 	}
 	if plan.NeedV4 {
-		if err := runOK(exec.Command("nft", "add", "rule", "inet", "banhack233", "input", "ip", "saddr", "@blocked", "tcp", "dport", "22", "drop")); err != nil {
+		if err := runOK(exec.Command("nft", "add", "rule", "inet", "banhack233", "input", "ip", "saddr", "@blocked", "tcp", "dport", portExpression(ports), "drop")); err != nil {
 			return err
 		}
 	}
 	if plan.NeedV6 {
-		if err := runOK(exec.Command("nft", "add", "rule", "inet", "banhack233", "input", "ip6", "saddr", "@blocked6", "tcp", "dport", "22", "drop")); err != nil {
+		if err := runOK(exec.Command("nft", "add", "rule", "inet", "banhack233", "input", "ip6", "saddr", "@blocked6", "tcp", "dport", portExpression(ports), "drop")); err != nil {
 			return err
 		}
 	}
@@ -129,6 +156,10 @@ type chainRulesPlan struct {
 // planChainRules 解析 `nft -a list chain` 输出：删除旧版全端口规则和重复的
 // 当前规则，并判断 v4/v6 两条「只拦 SSH 端口」规则是否缺失。
 func planChainRules(listOutput string) chainRulesPlan {
+	return planChainRulesPorts(listOutput, []int{22})
+}
+
+func planChainRulesPorts(listOutput string, ports []int) chainRulesPlan {
 	var plan chainRulesPlan
 	seenV4, seenV6 := false, false
 	for _, line := range strings.Split(listOutput, "\n") {
@@ -140,7 +171,7 @@ func planChainRules(listOutput string) chainRulesPlan {
 			handle = m[1]
 		}
 		isV6 := strings.Contains(line, "@blocked6")
-		scoped := strings.Contains(line, "tcp dport 22")
+		scoped := strings.Contains(line, "tcp dport "+portExpression(ports)+" drop")
 		seen := &seenV4
 		if isV6 {
 			seen = &seenV6
@@ -159,6 +190,33 @@ func planChainRules(listOutput string) chainRulesPlan {
 	plan.NeedV4 = !seenV4
 	plan.NeedV6 = !seenV6
 	return plan
+}
+
+func portStrings(ports []int) []string {
+	if len(ports) == 0 {
+		ports = []int{22}
+	}
+	unique := map[int]bool{}
+	for _, port := range ports {
+		unique[port] = true
+	}
+	ordered := []int{}
+	for port := range unique {
+		ordered = append(ordered, port)
+	}
+	sort.Ints(ordered)
+	result := []string{}
+	for _, port := range ordered {
+		result = append(result, strconv.Itoa(port))
+	}
+	return result
+}
+func portExpression(ports []int) string {
+	items := portStrings(ports)
+	if len(items) == 1 {
+		return items[0]
+	}
+	return "{ " + strings.Join(items, ", ") + " }"
 }
 
 func runOK(cmd *exec.Cmd) error {

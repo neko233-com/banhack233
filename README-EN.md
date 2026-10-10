@@ -2,7 +2,7 @@
 
 ## One-Line Install
 
-Linux / macOS / Windows Git Bash or MSYS:
+Linux / macOS:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/neko233-com/banhack233/main/scripts/install.sh | sh
@@ -38,6 +38,18 @@ Chinese docs: [README.md](README.md)
 
 Repository docs can include unreleased changes. Online HTML represents the stable version displayed on the page; see the [changelog](CHANGELOG.md).
 
+## Telegram and daily updates
+
+See [notification setup and retry semantics](docs/notifications-en.md) and [verified updates and rollback](docs/updates-en.md). Keep office egress addresses in `ignore_ips`; public SSH cannot identify a remote NIC MAC address.
+
+```sh
+sudo banhack233 safe-ssh -write
+banhack233 config-check
+sudo systemctl restart banhack233
+sudo banhack233 auto-update -enable
+banhack233 auto-update -status
+```
+
 ## What It Is
 
 `banhack233` is a simple host intrusion defense tool for Linux, macOS, and Windows.
@@ -67,18 +79,19 @@ Password SSH login and root password login are supported use cases. The default 
 
 1. Host security audit: SSH policy, firewall backend, update/reboot hints, notification channels.
 2. SSH failed-login scanning: auth.log, secure, Windows OpenSSH event log.
-3. Automatic bans: Linux uses `nft` if available, otherwise `iptables` / `ip6tables`, targeting destination TCP 22. See [current Windows/macOS limits](docs/design-en.md).
+3. SSH-scoped bans: Linux nft/iptables and Windows local destination ports follow `ssh_ports` (default `[22]`); macOS requires administrator-managed PF rules.
 4. Root password login support: root and password login are not forcibly disabled.
 5. SSH security baseline: no empty password, low retry count, short grace time, strong-password use case.
 6. SSH 24-hour keepalive: default changes SSH keepalive only, not system TCP sysctl.
 7. TCP keepalive advanced mode: global TCP keepalive/conntrack settings require explicit `-tcp`.
-8. Notifications: console, Feishu/Lark, Discord, Slack, generic webhook, email.
+8. Notifications: Telegram, Discord, Slack, Feishu/Lark, generic webhooks and TLS email; independent delivery with a durable retry queue.
 9. SMTP auto-detection: QQ, 163, 126, Gmail, Outlook, Hotmail, Live, and others.
 10. Linux malware scan: miner processes, temp-dir execution, LD_PRELOAD, cron/systemd persistence indicators.
-11. Optional remediation: `direct_kill=true` directly kills suspicious processes.
+11. Conservative cleanup: manual scans may terminate only recognized intrusion executable names when `direct_kill=true` or `-kill`; diagnostics and scheduled audits are read-only.
 12. Autostart: Linux systemd, macOS launchd, Windows schtasks.
 13. Safe defaults: `dry_run=true`, `start_at_end=true`, `ignore_ips` whitelist, `direct_kill=false`.
-14. fail2ban normal-style authentication detection: password failures, invalid-user publickey failures, max-auth-exceeded, `Invalid user`, `ROOT LOGIN REFUSED`, and `Auth fail` disconnects count. Successful login (`reset_patterns`) clears that IP's counters within the current rule. IPv4/IPv6 matching uses `<HOST>`; invalid log IPs are skipped. See [state semantics and platform differences](docs/design-en.md).
+14. Password-only defaults, per-user counting, successful-login reset and a 10-minute grace period. Success anywhere in the current read batch suppresses that IP’s earlier failures. Windows event IDs prevent replay.
+15. Daily verified stable updates, restart checks and rollback backups; [update guide](docs/updates-en.md).
 
 ## Can It Be Antivirus?
 
@@ -108,9 +121,9 @@ So default behavior is scan and alert only. Remediation must be explicitly enabl
 | --- | --- | --- | --- |
 | Linux | amd64 / arm64 | `install.sh` | systemd |
 | macOS | amd64 / arm64 | `install.sh` | launchd |
-| Windows | amd64 / arm64 | `install.ps1` or Git Bash `install.sh` | schtasks |
+| Windows | amd64 / arm64 | `install.ps1` | schtasks |
 
-These are build/startup targets, not identical firewall capabilities. Windows currently has repeated event reads and a firewall port-direction issue; macOS needs separately configured PF filters and log input. Read [known limits](docs/design-en.md) before deployment.
+Windows event cursors and local-port enforcement are implemented. macOS still requires PF and log-source setup. Builds and automated tests do not replace target-host acceptance; see [platform limits](docs/design-en.md).
 
 Default config paths:
 
@@ -145,7 +158,7 @@ sudo banhack233 enable-production -config /etc/banhack233/config.json
 sudo systemctl restart banhack233
 ```
 
-`enable-production` sets `dry_run=false`, replaces GeoIP/logging with platform defaults, disables audit notifications, and enables batching at 60 seconds / 20 items. It preserves rules, whitelist, and channel credentials but does not restart the service. Review [field changes](docs/configuration-en.md) if paths are customized. `scripts/enable-production.sh` additionally downloads a missing database, applies the SSH baseline with `-force`, and attempts a restart; review it before running. To flip only `dry_run`:
+`enable-production` changes only `dry_run=false`, preserving every other setting; restart the daemon afterward. The optional `scripts/enable-production.sh` also changes SSH policy and should be reviewed separately. Manual equivalent:
 
 ```sh
 sudo sed -i 's/"dry_run": true/"dry_run": false/' /etc/banhack233/config.json
@@ -154,7 +167,7 @@ sudo systemctl restart banhack233
 
 ## Main Commands
 
-See [command arguments and side effects](docs/commands-en.md). `test` executes a real scan, writes state, and can ban in production. `status` / `doctor` run audits, which can terminate suspicious processes if `direct_kill` is enabled. Keep both `dry_run=true` and `direct_kill=false` for observation.
+See [commands](docs/commands-en.md). `test` is a real scan and can change the firewall in production; `config-check`, `status` and `doctor` do not terminate processes.
 
 ```sh
 banhack233 status
@@ -201,7 +214,7 @@ Automatic cleanup config:
 }
 ```
 
-`direct_kill=true` makes manual `malware-scan` and scheduled `doctor` checks directly kill suspicious processes. This is the only cleanup switch, keeping behavior simple.
+`direct_kill` is the only cleanup configuration switch, default false. It applies to manual `malware-scan`; routine audits never kill. A temporary path, mining-tool name or matching command argument alone is insufficient for cleanup; review the report.
 
 Reports:
 
@@ -318,9 +331,9 @@ If an application has its own 5-minute idle timeout, fix the application heartbe
 
 A public SSH server cannot see a client's MAC address: MAC addresses stay on the local link. Behind NAT, counting failures by username still affects everyone if enforcement blocks the shared IP. Use a separate SSH key or certificate for each device when device identity is needed. Password login and root login remain supported.
 
-Current defaults detect password failures, invalid-user publickey failures, authentication limits, `Invalid user`, refused root login, and `Auth fail` disconnects. Successful login resets failure counters. Counts represent matching log events, so one authentication exchange can contribute multiple events; `max_attempts` is not an exact count of typed passwords. With `count_by_user=true`, counters use IP+username, but enforcement still blocks the source IP: keep trusted office addresses whitelisted. SSH `MaxAuthTries` limits attempts within one connection, not new connections per minute.
+Defaults count only explicit `Failed password` lines, with IP+username grouping and successful-login reset/grace. Invalid-user/publickey/connection messages do not count. Shared usernames still share counters; actual enforcement remains source-IP based, so whitelist office egress addresses. No connections-per-minute drop rule is installed.
 
-For password-only detection, replace the existing SSH rule's `patterns` with the following and restart. Keep success-reset patterns and whitelist entries. Upgrades preserve existing config:
+Existing configurations are preserved. Migrate the named default rule with `safe-ssh -write` and restart; custom rules need explicit review. The password-only pattern is:
 
 ```json
 "patterns": ["Failed password for(?: invalid user)? (?P<user>\\S+) from <HOST>"]
@@ -351,18 +364,19 @@ If Fail2ban, SSHGuard, cloud firewalls, or SSH connection rate limits also run, 
   "state_path": "/var/lib/banhack233/state.json",
   "dry_run": true,
   "start_at_end": true,
-  "ignore_ips": ["127.0.0.1", "::1"],
+  "ignore_ips": [
+    "127.0.0.1",
+    "::1"
+  ],
   "rules": [
     {
       "name": "ssh-auth-failure",
-      "log_paths": ["/var/log/auth.log", "/var/log/secure"],
+      "log_paths": [
+        "/var/log/auth.log",
+        "/var/log/secure"
+      ],
       "patterns": [
-        "Failed password for(?: invalid user)? (?P<user>\\S+) from <HOST>",
-        "Failed publickey for invalid user (?P<user>\\S+) from <HOST>",
-        "maximum authentication attempts exceeded for (?P<user>\\S+) from <HOST>",
-        "Invalid user (?P<user>\\S+) from <HOST>",
-        "ROOT LOGIN REFUSED FROM <HOST>",
-        "Received disconnect from <HOST> port \\d+:3: Auth fail"
+        "Failed password for(?: invalid user)? (?P<user>\\S+) from <HOST>"
       ],
       "reset_patterns": [
         "Accepted (?:password|publickey|keyboard-interactive) for (?P<user>\\S+) from <HOST>"
@@ -377,7 +391,8 @@ If Fail2ban, SSHGuard, cloud firewalls, or SSH connection rate limits also run, 
           "广州": 100,
           "Guangzhou": 100
         }
-      }
+      },
+      "success_grace": "10m"
     }
   ],
   "malware": {
@@ -385,7 +400,10 @@ If Fail2ban, SSHGuard, cloud firewalls, or SSH connection rate limits also run, 
     "direct_kill": false,
     "report_dir": "/var/lib/banhack233/reports",
     "report_keep": 50
-  }
+  },
+  "ssh_ports": [
+    22
+  ]
 }
 ```
 
@@ -401,11 +419,11 @@ Important fields:
 | `ban_time` | Automatic ban duration; removal on the next scan after expiry; alert cooldown in `notify` mode |
 | `action` | `auto` blocks IPs; `notify` only alerts; or a custom command |
 | `count_by_user` | When `true`, count failures per IP+user; requires `(?P<user>...)` in patterns. Reduces false bans on shared egress IPs |
-| `patterns` | Failure regex list with named groups `(?P<ip>...)`/`(?P<user>...)`; the `<HOST>` macro expands to IPv4/IPv6 literals (fail2ban-compatible); defaults align with fail2ban normal mode |
+| `patterns` | Go regex with `<HOST>` or named IP group; default counts password failures only |
 | `reset_patterns` | Successful-login regex; clears all failure counters for that IP (fail2ban MLFGAINED semantics) so legit users are not penalized by historical failures |
 | `region_rules.max_attempts` | Override threshold by GeoIP Country/Region/City; keys support Chinese/English (`广州`/`Guangzhou`) |
 | `malware.enabled` | Include malware checks in doctor/hourly audit |
-| `malware.direct_kill` | Directly kill suspicious processes, default false |
+| `malware.direct_kill` | Manual cleanup of recognized intrusion executable names; default false; audits remain read-only |
 | `malware.report_dir` | Report directory |
 | `malware.report_keep` | Report retention count; older files pruned by LRU |
 

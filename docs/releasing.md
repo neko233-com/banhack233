@@ -18,7 +18,7 @@
 ## 成功后才更新
 
 1. 校验正式标签、对应提交和当前最新 Release，拒绝移动过的标签。
-2. 调用可复用 CI：Linux/Windows 测试、Go vet、Linux race、ShellCheck、文档生成器测试和发布门禁测试。
+2. 调用可复用 CI：Linux/macOS/Windows 测试、Go vet、Linux race、ShellCheck、文档生成器测试和发布门禁测试。
 3. 编译 Linux/macOS/Windows 的 amd64、arm64 六个二进制，构建中英文 HTML，并生成校验和与离线文档包。
 4. 再次检查标签与最新版。先创建草稿 Release，上传完整资产后才发布为正式最新版。
 5. Pages 部署任务通过 `needs` 等待前置任务成功，再核对已发布版本和最新标签，最后部署同一次运行的 HTML artifact；单独重跑部署任务也会重新校验。
